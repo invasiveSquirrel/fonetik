@@ -1,0 +1,54 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import electron from 'vite-plugin-electron'
+import renderer from 'vite-plugin-electron-renderer'
+import path from 'path'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [
+    react(),
+    electron([
+      {
+        // Main process entry file of the Electron App
+        entry: 'electron/main.ts',
+        onstart(options) {
+          options.startup()
+        },
+        vite: {
+          build: {
+            rollupOptions: {
+              external: [
+                'electron', 
+                'sqlite3', 
+                'fs', 
+                'path', 
+                'child_process', 
+                'module', 
+                'url',
+                '@google-cloud/speech', 
+                '@google/generative-ai'
+              ],
+              output: {
+                format: 'cjs',
+                entryFileNames: '[name].js',
+              },
+            },
+          },
+        },
+      },
+      {
+        entry: 'electron/preload.ts',
+        onstart(options) {
+          options.reload()
+        },
+      },
+    ]),
+    renderer(),
+  ],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
+  },
+})

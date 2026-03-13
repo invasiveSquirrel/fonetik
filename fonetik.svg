@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Background circle - slate-900 -->
+  <circle cx="64" cy="64" r="62" fill="#0f172a" stroke="#38bdf8" stroke-width="2"/>
+  
+  <!-- Outer ring - sky-400 with opacity -->
+  <circle cx="64" cy="64" r="56" fill="none" stroke="#38bdf8" stroke-width="2" opacity="0.3"/>
+  
+  <!-- Central IPA Symbol [f] style -->
+  <g transform="translate(64, 64)">
+    <!-- Stylized 'f' / 'phonetic' hook -->
+    <path d="M -15 30 L -15 -10 C -15 -25 5 -35 15 -25 M -25 0 L 5 0" 
+          stroke="#38bdf8" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    
+    <!-- Sound waves to indicate audio/phonetics -->
+    <path d="M 15 -5 C 20 -2 20 2 15 5" stroke="#10b981" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.8"/>
+    <path d="M 25 -10 C 32 -5 32 5 25 10" stroke="#10b981" stroke-width="4" fill="none" stroke-linecap="round" opacity="0.5"/>
+  </g>
+</svg>
