@@ -19,21 +19,27 @@ Fonetik is a specialized tool for mastering the most difficult sounds in a new l
 
 ### Step 2: Extract (Unzip) the Folder
 Once the download is finished, you need to "unzip" the files before they will work:
-- **On Windows:** Right-click the downloaded file (it will look like a folder with a zipper) and select **"Extract All..."**, then click the **"Extract"** button.
-- **On Mac:** Simply double-click the downloaded file. A new, regular folder will appear automatically.
+- **On Windows:** Right-click the downloaded file and select **"Extract All..."**.
+- **On Mac:** Simply double-click the downloaded file.
 - **On Linux:** Right-click the file and select **"Extract Here"**.
 
 ### Step 3: Final Installation
 **For Windows:**
-1. Install [Node.js](https://nodejs.org) (click the "LTS" version).
+1. Install [Node.js](https://nodejs.org) (LTS version).
 2. Open your new "extracted" folder.
-3. Click the "address bar" at the top of the window, type `cmd` and press Enter.
-4. In the black window, type `npm install` and press Enter.
-5. When it's done, type `npm start` to run.
+3. Type `cmd` in the top address bar and press Enter.
+4. Type `npm install` and press Enter. When finished, type `npm start` to run.
 
-**For Mac:**
-1. Install [Node.js](https://nodejs.org).
-2. Open the **Terminal** app.
-3. Type `cd ` (with a space) and then drag your extracted folder into the terminal window. Press Enter.
-4. Type `npm install` and press Enter.
-5. Type `npm start` to run.
+---
+
+## 🔑 Setup: Your API Key & Voice
+This app uses AI to generate sounds and high-quality voices to read them.
+
+### 1. The "Brains" Key (For generating new sound cards)
+1. Go to [Google AI Studio](https://aistudio.google.com/) (it's free).
+2. Click **"Get API Key"**.
+3. **Where to put it:** Create a folder named `wordhord` in your main main User directory (Home).
+4. Create a text file inside that folder called `wordhord_api.txt` and paste your key inside.
+
+### 2. The "Voice" Credentials (For high-quality speech)
+To hear the neural voices, the app looks for a file named `google-credentials.json` in the `panglossia` folder (if you use both apps) or your system path. If you do not have this, the app will automatically fall back to your computer's built-in voices.
