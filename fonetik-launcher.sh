@@ -14,5 +14,5 @@ if [ -f "/home/chris/panglossia/google-credentials.json" ]; then
 fi
 
 # Launch the production build
-# Using DRI_PRIME=0 and no-sandbox for Linux stability
-DRI_PRIME=0 npx electron . --no-sandbox --disable-gpu-sandbox --disable-software-rasterizer --disable-dev-shm-usage > /tmp/fonetik.log 2>&1
+# Using prime-run and no-sandbox for Linux stability
+prime-run npx electron . --no-sandbox --disable-gpu-sandbox --disable-software-rasterizer --disable-dev-shm-usage > /tmp/fonetik.log 2>&1

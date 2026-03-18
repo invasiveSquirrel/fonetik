@@ -98,17 +98,21 @@ ipcMain.handle('play-ipa', async (_, { text, language }) => {
     "Swedish (Skåne)": { languageCode: "sv-SE", name: "sv-SE-Chirp3-HD-Laomedeia" },
     "Swedish (Finland)": { languageCode: "sv-SE", name: "sv-SE-Chirp3-HD-Laomedeia" },
     "Finnish (Helsinki)": { languageCode: "fi-FI", name: "fi-FI-Chirp3-HD-Despina" },
-    "Scottish Gaelic": { languageCode: "en-US", name: "en-US-Journey-F" }
+    "Scottish Gaelic": { languageCode: "en-GB", name: "en-GB-Standard-A" }
   };
 
   const selectedVoice = highQualityVoiceMap[language] || { languageCode: "en-US", name: "en-US-Journey-F" };
-  const isIpa = text.startsWith('[') && text.endsWith(']');
+  
+  // If the language is Gaelic, we ALWAYS want to use IPA via SSML for accuracy
+  // Check if text is bracketed or contains IPA characters
+  const containsIpa = /[ɑʋɛɪɔʊæøœʉɟʝɲŋʃʒθðɬɮɹɻɥɰʁˈˌ]/.test(text);
+  const isIpa = (text.startsWith('[') && text.endsWith(']')) || containsIpa || language === "Scottish Gaelic";
   const cleanText = text.replace(/[\[\]]/g, '');
 
   try {
     let input;
     if (isIpa) {
-      console.log(`[main] Using SSML for IPA: ${cleanText}`);
+      console.log(`[main] Using SSML for IPA/Gaelic: ${cleanText}`);
       input = { ssml: `<speak><phoneme alphabet="ipa" ph="${cleanText}">${cleanText}</phoneme></speak>` };
     } else {
       input = { text: text };

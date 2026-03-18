@@ -183,7 +183,7 @@ export default function App() {
                       { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3 }
                     ].filter(ex => ex.word).map((ex, i) => (
                       <div key={i} className="example-row">
-                        <button className="audio-btn-mini" onClick={(e) => { e.stopPropagation(); playIPA(ex.word!); }}>
+                        <button className="audio-btn-mini" onClick={(e) => { e.stopPropagation(); playIPA(ex.ipa!); }}>
                           <Volume2 size={14} />
                         </button>
                         <div className="example-text-group">
