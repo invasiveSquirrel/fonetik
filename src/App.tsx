@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, Info, ChevronRight, ChevronLeft, Layers } from 'lucide-react';
+import { Mic, MicOff, Volume2, ChevronRight, ChevronLeft, Layers, RefreshCw } from 'lucide-react';
 import './App.css';
 
 interface Card {
@@ -17,9 +17,24 @@ interface Card {
   example_word: string;
   example_translation: string;
   example_ipa: string;
+  example_word2?: string;
+  example_translation2?: string;
+  example_ipa2?: string;
+  example_word3?: string;
+  example_translation3?: string;
+  example_ipa3?: string;
 }
 
-const LANGUAGES = ["English", "German", "Dutch", "Spanish", "Portuguese", "Finnish", "Swedish"];
+const LANGUAGES = [
+  "English (North American)", "English (Received Pronunciation)", "English (Australian)", "English (Scottish)", "English (Cockney)",
+  "Dutch (Netherlands)", "Dutch (Flemish)",
+  "German (Northern)", "German (Austrian)", "German (Swiss)",
+  "Spanish (Spain)", "Spanish (Mexican)", "Spanish (Argentinian)", "Spanish (Colombian)", "Spanish (Chilean)", "Spanish (Cuban)",
+  "Portuguese (Brazilian)", "Portuguese (European)",
+  "Swedish (Stockholm)", "Swedish (Skåne)", "Swedish (Finland)",
+  "Finnish (Helsinki)",
+  "Scottish Gaelic"
+];
 
 export default function App() {
   const [language, setLanguage] = useState(LANGUAGES[0]);
@@ -28,6 +43,49 @@ export default function App() {
   const [showFront, setShowFront] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [feedback, setFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
+
+  useEffect(() => {
+    loadCards();
+  }, [language]);
+
+  const loadCards = async () => {
+    // @ts-ignore
+    const data = await window.electronAPI.getCards(language);
+    setCards(data);
+    setCurrentIndex(0);
+    setShowFront(true);
+  };
+
+  const playIPA = async (text: string) => {
+    try {
+      console.log(`Playing IPA: ${text} for ${language}`);
+      // @ts-ignore
+      const audioBuffer = await window.electronAPI.playIpa(text, language);
+      if (!audioBuffer || audioBuffer.byteLength === 0) {
+        console.warn("Received empty audio buffer");
+        return;
+      }
+      console.log(`Received buffer of size: ${audioBuffer.byteLength}`);
+      const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.play().catch(e => console.error("Playback failed", e));
+    } catch (err) {
+      console.error("playIPA failed", err);
+    }
+  };
+
+  const nextCard = () => {
+    setCurrentIndex((prev) => (prev + 1) % cards.length);
+    setShowFront(true);
+    setFeedback(null);
+  };
+
+  const prevCard = () => {
+    setCurrentIndex((prev) => (prev - 1 + cards.length) % cards.length);
+    setShowFront(true);
+    setFeedback(null);
+  };
 
   const startRecording = async () => {
     try {
@@ -52,34 +110,10 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    loadCards();
-  }, [language]);
-
-  const loadCards = async () => {
-    // @ts-ignore
-    const data = await window.electronAPI.getCards(language);
-    setCards(data);
+  const shuffleCards = () => {
+    const shuffled = [...cards].sort(() => Math.random() - 0.5);
+    setCards(shuffled);
     setCurrentIndex(0);
-    setShowFront(true);
-  };
-
-  const playIPA = async (text: string) => {
-    // @ts-ignore
-    const audioBuffer = await window.electronAPI.playIpa(text, language);
-    const blob = new Blob([audioBuffer], { type: 'audio/wav' });
-    const url = URL.createObjectURL(blob);
-    new Audio(url).play();
-  };
-
-  const nextCard = () => {
-    setCurrentIndex((prev) => (prev + 1) % cards.length);
-    setShowFront(true);
-    setFeedback(null);
-  };
-
-  const prevCard = () => {
-    setCurrentIndex((prev) => (prev - 1 + cards.length) % cards.length);
     setShowFront(true);
     setFeedback(null);
   };
@@ -88,14 +122,20 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <header>
+      <header className="drag-region">
         <div className="logo">
-          <h1>fonetik</h1>
-          <Layers size={24} className="logo-icon" />
+          <h1 className="ipa-name">[fəˈnɛtɪk]</h1>
+          <Layers size={28} className="logo-icon" />
         </div>
-        <select value={language} onChange={(e) => setLanguage(e.target.value)} className="lang-select">
-          {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
-        </select>
+        <div className="header-actions">
+          <button className="shuffle-btn" title="Shuffle Deck" onClick={shuffleCards}>
+            <RefreshCw size={20} />
+          </button>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)} className="lang-select">
+            {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+          <button className="close-btn" onClick={() => window.close()}>×</button>
+        </div>
       </header>
 
       <main>
@@ -107,46 +147,52 @@ export default function App() {
               <div className="card-face card-front">
                 <div className="symbol-display">
                   <span className="ipa-symbol">{currentCard.symbol}</span>
-                  <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol); }}>
-                    <Volume2 size={32} />
-                  </button>
+                  
+                  <div className="speaker-and-tags">
+                    <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol); }}>
+                      <Volume2 size={40} />
+                    </button>
+                    
+                    <div className="classification-tags-vertical">
+                      {currentCard.type === 'consonant' ? (
+                        <>
+                          {currentCard.voicing && <span className="tag voicing">{currentCard.voicing}</span>}
+                          {currentCard.place && <span className="tag place">{currentCard.place}</span>}
+                          {currentCard.manner && <span className="tag manner">{currentCard.manner}</span>}
+                        </>
+                      ) : (
+                        <>
+                          {currentCard.height && <span className="tag height">{currentCard.height}</span>}
+                          {currentCard.backness && <span className="tag backness">{currentCard.backness}</span>}
+                          {currentCard.roundedness && <span className="tag roundedness">{currentCard.roundedness}</span>}
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="classification-tags">
-                  {currentCard.type === 'consonant' ? (
-                    <>
-                      <span className="tag voicing">{currentCard.voicing}</span>
-                      <span className="tag place">{currentCard.place}</span>
-                      <span className="tag manner">{currentCard.manner}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="tag height">{currentCard.height}</span>
-                      <span className="tag backness">{currentCard.backness}</span>
-                      <span className="tag roundedness">{currentCard.roundedness}</span>
-                    </>
-                  )}
-                </div>
-                <div className="hint-text">Click to flip for details</div>
+                <div className="hint-text">Click to flip for examples</div>
               </div>
 
               {/* Back of Card */}
               <div className="card-face card-back">
                 <div className="back-content">
-                  <h3>Phonology</h3>
-                  <p className="description">{currentCard.description}</p>
-                  
-                  <div className="example-box">
-                    <div className="example-header">
-                      <strong>Example</strong>
-                      <button className="audio-btn-mini" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.example_word); }}>
-                        <Volume2 size={16} />
-                      </button>
-                    </div>
-                    <div className="example-main">
-                      <span className="word">{currentCard.example_word}</span>
-                      <span className="ipa">{currentCard.example_ipa}</span>
-                    </div>
-                    <p className="translation">"{currentCard.example_translation}"</p>
+                  <div className="examples-container">
+                    {[
+                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa },
+                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2 },
+                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3 }
+                    ].filter(ex => ex.word).map((ex, i) => (
+                      <div key={i} className="example-row">
+                        <button className="audio-btn-mini" onClick={(e) => { e.stopPropagation(); playIPA(ex.word!); }}>
+                          <Volume2 size={14} />
+                        </button>
+                        <div className="example-text-group">
+                          <span className="word">{ex.word}</span>
+                          <span className="ipa">{ex.ipa}</span>
+                        </div>
+                        <span className="translation">"{ex.trans}"</span>
+                      </div>
+                    ))}
                   </div>
 
                   <div className="voice-evaluation">
@@ -169,13 +215,13 @@ export default function App() {
             </div>
 
             <div className="navigation">
-              <button onClick={prevCard} className="nav-btn"><ChevronLeft size={32} /></button>
+              <button onClick={(e) => { e.stopPropagation(); prevCard(); }} className="nav-btn"><ChevronLeft size={40} /></button>
               <span className="counter">{currentIndex + 1} / {cards.length}</span>
-              <button onClick={nextCard} className="nav-btn"><ChevronRight size={32} /></button>
+              <button onClick={(e) => { e.stopPropagation(); nextCard(); }} className="nav-btn"><ChevronRight size={40} /></button>
             </div>
           </div>
         ) : (
-          <div className="loading">Loading IPA data...</div>
+          <div className="loading">Loading exhaustive IPA data...</div>
         )}
       </main>
     </div>
