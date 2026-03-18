@@ -2,10 +2,21 @@
 
 Fonetik is a specialized tool for mastering the most difficult sounds in a new language. It uses the International Phonetic Alphabet (IPA) and high-fidelity audio to show you exactly how to pronounce tricky phonemes.
 
+## 🌍 Supported Languages & Dialects
+Fonetik includes specialized sound sets for:
+- **English:** North American, Received Pronunciation (UK), Australian, Scottish, and Cockney.
+- **Dutch:** Netherlands and Flemish.
+- **German:** Northern, Austrian, and Swiss.
+- **Spanish:** Spain, Mexican, Argentinian, Colombian, Chilean, and Cuban.
+- **Portuguese:** Brazilian and European.
+- **Swedish:** Stockholm, Skåne, and Finland-Swedish.
+- **Finnish**
+- **Scottish Gaelic** (Master tricky broad/slender and pre-aspiration sounds!)
+
 ## 🌟 What this app does
 - **Phonetic Mastery:** Learn the specific mouth movements for each sound.
 - **Visual & Auditory:** See the IPA symbol and hear it pronounced by a high-quality neural voice.
-- **Gaelic Specialty:** Includes 26 specialized cards for Scottish Gaelic, teaching you "broad vs. slender" sounds and pre-aspiration.
+- **Expert Data:** Includes 26 specialized cards for Scottish Gaelic phonetics.
 
 ---
 
@@ -20,7 +31,7 @@ Fonetik is a specialized tool for mastering the most difficult sounds in a new l
 ### Step 2: Extract (Unzip) the Folder
 Once the download is finished, you need to "unzip" the files before they will work:
 - **On Windows:** Right-click the downloaded file and select **"Extract All..."**.
-- **On Mac:** Simply double-click the downloaded file.
+- **On Mac:** Simply double-click the downloaded file. A new, regular folder will appear automatically.
 - **On Linux:** Right-click the file and select **"Extract Here"**.
 
 ### Step 3: Final Installation
