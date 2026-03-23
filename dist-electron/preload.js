@@ -1,0 +1,1 @@
+let e=require(`electron`);e.contextBridge.exposeInMainWorld(`electronAPI`,{getCards:t=>e.ipcRenderer.invoke(`get-cards`,t),playIpa:(t,n)=>e.ipcRenderer.invoke(`play-ipa`,{text:t,language:n}),saveCards:t=>e.ipcRenderer.invoke(`save-cards`,t),evaluateAudio:(t,n,r)=>e.ipcRenderer.invoke(`evaluate-audio`,{audioBlob:t,language:n,expectedText:r})});
