@@ -15,11 +15,14 @@ const genAI = new GoogleGenerativeAI(finalKey);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 const LANGUAGES = [
-  "English (North American)", "English (Received Pronunciation)",
-  "Spanish (Spain)", "Spanish (Mexican)",
-  "Portuguese (European)", "Portuguese (Brazilian)",
-  "German (Northern)", "Dutch (Netherlands)",
-  "Swedish (Stockholm)", "Scottish Gaelic"
+  "English (North American)", "English (Received Pronunciation)", "English (Australian)", "English (Scottish)",
+  "Dutch (Netherlands)", "Dutch (Flemish)",
+  "German (Northern)", "German (Austrian)", "German (Swiss)",
+  "Spanish (Spain)", "Spanish (Mexican)", "Spanish (Argentinian)", "Spanish (Colombian)", "Spanish (Chilean)", "Spanish (Cuban)",
+  "Portuguese (Brazilian)", "Portuguese (European)",
+  "Swedish (Stockholm)", "Swedish (Skåne)", "Swedish (Finland)",
+  "Finnish (Helsinki)",
+  "Scottish Gaelic"
 ];
 
 async function sleep(ms) {
@@ -31,16 +34,23 @@ async function generateBatch(language, offset, existingSymbols) {
     ACT AS AN EXPERT PHONOLOGIST AND PHONETICIAN. Target Dialect: ${language}.
     Generate a JSON list of 15 UNIQUE IPA entries (Batch starting at ${offset}).
     
-    GOAL: Provide a comprehensive set of phonemes and allophones (e.g., aspirated vs unaspirated, taps, glottalization, dialect-specific realizations like the 'w' in Dutch or 'sj'-sound in Swedish).
+    GOAL: Provide a COMPREHENSIVE and EXHAUSTIVE set of phonemes and allophones.
+    **CRITICAL COVERAGE REQUIREMENTS**: 
+    - Include a wide variety of 'a' sounds (e.g., [a], [ɑ], [æ], [ɐ], [ə], [ʌ]).
+    - Include barred letters (e.g., [ʉ], [ɨ], [ɵ], [ɝ]).
+    - Include raised consonants/superscripts (e.g., [tʰ], [pᶣ], [dᶻ], [nⁿ]).
+    - Include all types of Germanic umlauts and their IPA equivalents (e.g., [ɛ], [ø], [y], [œ]).
+    - Include aspirated vs unaspirated, taps, glottalization, and dialect-specific realizations.
     
     EXCLUDE THESE SYMBOLS ALREADY IN DB: ${existingSymbols.join(', ')}
 
     REQUIREMENTS:
-    1. Include the IPA symbol/transcription (e.g., [tʰ], [ɾ], [ç], [ɧ]).
+    1. Include the IPA symbol/transcription (e.g., [tʰ], [ɾ], [ç], [ɧ]). **CRITICAL: For affricates and diphthongs, ALWAYS use tie bars (U+0361 or U+035C, e.g., [t͡s], [d͡ʒ], [a͡ɪ], [o͡ʊ]).**
     2. Provide THREE EXAMPLES per sound. Each example MUST have:
        - "word": Native orthography.
        - "trans": English translation.
-       - "ipa": Full, narrow IPA transcription of that word.
+       - "ipa": Full, narrow IPA transcription of that word. **CRITICAL: The IPA MUST exactly represent the pronunciation of the 'word'. Use tie bars for ALL affricates and diphthongs.**
+       - "sentence": A short, simple sample sentence in the target language where the "word" is clearly embedded.
     3. Classification:
        - For consonants: voicing, place, manner.
        - For vowels: height, backness, roundedness (nasalization if applicable).
@@ -54,9 +64,9 @@ async function generateBatch(language, offset, existingSymbols) {
         "voicing": "...", "place": "...", "manner": "...",
         "height": "...", "backness": "...", "roundedness": "...",
         "description": "...",
-        "example_word": "...", "example_translation": "...", "example_ipa": "...",
-        "example_word2": "...", "example_translation2": "...", "example_ipa2": "...",
-        "example_word3": "...", "example_translation3": "...", "example_ipa3": "..."
+        "example_word": "...", "example_translation": "...", "example_ipa": "...", "example_sentence": "...",
+        "example_word2": "...", "example_translation2": "...", "example_ipa2": "...", "example_sentence2": "...",
+        "example_word3": "...", "example_translation3": "...", "example_ipa3": "...", "example_sentence3": "..."
       }
     ]
   `;
@@ -87,6 +97,7 @@ async function main() {
       example_word TEXT, example_translation TEXT, example_ipa TEXT,
       example_word2 TEXT, example_translation2 TEXT, example_ipa2 TEXT,
       example_word3 TEXT, example_translation3 TEXT, example_ipa3 TEXT,
+      example_sentence TEXT, example_sentence2 TEXT, example_sentence3 TEXT,
       UNIQUE(language, symbol, example_word)
     )`);
   });
@@ -94,8 +105,8 @@ async function main() {
   for (const lang of LANGUAGES) {
     let currentCount = await new Promise(r => db.get("SELECT COUNT(*) as c FROM cards WHERE language=?", [lang], (e, row) => r(row ? row.c : 0)));
 
-    // Custom targets for complex languages
-    const target = (lang === "Swedish (Stockholm)" || lang === "Scottish Gaelic") ? 250 : 100;
+    // Exhaustive targets for diverse coverage
+    const target = (lang.includes("English") || lang.includes("Swedish") || lang.includes("Gaelic") || lang.includes("German")) ? 500 : 300;
 
     console.log(`\n🌍 Dialect: ${lang} (Current: ${currentCount}/${target})`);
 
@@ -113,8 +124,9 @@ async function main() {
         language, symbol, voicing, place, manner, height, backness, roundedness, type, description, 
         example_word, example_translation, example_ipa,
         example_word2, example_translation2, example_ipa2,
-        example_word3, example_translation3, example_ipa3
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        example_word3, example_translation3, example_ipa3,
+        example_sentence, example_sentence2, example_sentence3
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
       await new Promise((resolve) => {
         db.serialize(() => {
@@ -124,7 +136,8 @@ async function main() {
               card.height || null, card.backness || null, card.roundedness || null, card.type, card.description,
               card.example_word, card.example_translation, card.example_ipa,
               card.example_word2 || null, card.example_translation2 || null, card.example_ipa2 || null,
-              card.example_word3 || null, card.example_translation3 || null, card.example_ipa3 || null
+              card.example_word3 || null, card.example_translation3 || null, card.example_ipa3 || null,
+              card.example_sentence || null, card.example_sentence2 || null, card.example_sentence3 || null
             );
           }
           stmt.finalize(() => resolve());

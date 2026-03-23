@@ -24,7 +24,7 @@ async function b() {
 			return;
 		}
 		h?.serialize(() => {
-			h?.run("\n        CREATE TABLE IF NOT EXISTS cards (\n          id INTEGER PRIMARY KEY AUTOINCREMENT,\n          language TEXT,\n          symbol TEXT,\n          voicing TEXT,\n          place TEXT,\n          manner TEXT,\n          height TEXT,\n          backness TEXT,\n          roundedness TEXT,\n          type TEXT,\n          description TEXT,\n          example_word TEXT,\n          example_translation TEXT,\n          example_ipa TEXT,\n          example_word2 TEXT,\n          example_translation2 TEXT,\n          example_ipa2 TEXT,\n          example_word3 TEXT,\n          example_translation3 TEXT,\n          example_ipa3 TEXT,\n          UNIQUE(language, symbol, example_word)\n        )\n      ", (e) => {
+			h?.run("\n        CREATE TABLE IF NOT EXISTS cards (\n          id INTEGER PRIMARY KEY AUTOINCREMENT,\n          language TEXT,\n          symbol TEXT,\n          voicing TEXT,\n          place TEXT,\n          manner TEXT,\n          height TEXT,\n          backness TEXT,\n          roundedness TEXT,\n          type TEXT,\n          description TEXT,\n          example_word TEXT,\n          example_translation TEXT,\n          example_ipa TEXT,\n          example_word2 TEXT,\n          example_translation2 TEXT,\n          example_ipa2 TEXT,\n          example_word3 TEXT,\n          example_translation3 TEXT,\n          example_ipa3 TEXT,\n          example_sentence TEXT,\n          example_sentence2 TEXT,\n          example_sentence3 TEXT,\n          UNIQUE(language, symbol, example_word)\n        )\n      ", (e) => {
 				e ? console.error("Error creating cards table:", e) : console.log("Database initialized or already exists");
 			});
 		});
@@ -61,15 +61,11 @@ var x = class {
 		let t = Date.now(), n = t - 6e4, r = (this.callTimes.get(e) || []).filter((e) => e > n);
 		return r.length >= this.maxPerMinute ? !1 : (r.push(t), this.callTimes.set(e, r), !0);
 	}
-	reset(e) {
-		this.callTimes.delete(e);
-	}
 }, T = new w(30), E = new w(15), D = [
 	"English (North American)",
 	"English (Received Pronunciation)",
 	"English (Australian)",
 	"English (Scottish)",
-	"English (Cockney)",
 	"Dutch (Netherlands)",
 	"Dutch (Flemish)",
 	"German (Northern)",
@@ -124,37 +120,36 @@ function M() {
 t.on("ready", async () => {
 	await b(), M();
 }), t.on("window-all-closed", () => {
-	process.platform !== "darwin" && (h && h.close((e) => {
-		e && console.error("Database close error");
-	}), t.quit());
+	process.platform !== "darwin" && (h && h.close(), t.quit());
 }), n.handle("get-cards", async (e, t) => {
 	try {
-		if (!e.senderFrame.url.startsWith("file://")) throw Error("Unauthorized origin");
-		let n = O(t);
-		return S.get(n) || new Promise((e, t) => {
-			h.all("SELECT * FROM cards WHERE language = ? LIMIT 1000", [n], (r, i) => {
-				if (r) {
-					t(/* @__PURE__ */ Error("Database query failed"));
-					return;
-				}
-				let a = i || [];
-				S.set(n, a), e(a);
+		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
+		let n = O(t), r = S.get(n);
+		if (r) return r;
+		let i = h;
+		if (!i) throw Error("Database not initialized");
+		let a = await new Promise((e, t) => {
+			i.all("SELECT * FROM cards WHERE language = ? LIMIT 1000", [n], (n, r) => {
+				n ? t(n) : e(r);
 			});
-		});
+		}) || [];
+		return S.set(n, a), a;
 	} catch (e) {
 		throw Error(e?.message || "Failed to get cards");
 	}
-}), n.handle("play-ipa", async (e, { text: t, language: n }) => {
+}), n.handle("play-ipa", async (e, { text: t, language: n, speed: r, isIpa: a }) => {
+	let o = r || 1;
+	console.log(`IPC play-ipa: text="${t}", lang="${n}", speed=${o}, isIpa=${a}`);
 	try {
-		if (!e.senderFrame.url.startsWith("file://")) throw Error("Unauthorized origin");
-		if (!T.check("play-ipa")) throw Error("Rate limit exceeded. Please wait before trying again.");
-		if (typeof t != "string" || t.length === 0 || t.length > 500) throw Error("Invalid text parameter");
-		let r = O(n), a = `${r}::${t}`, o = C.get(a);
-		if (o) return o;
-		let s = {
+		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
+		if (!T.check("play-ipa")) throw Error("Rate limit exceeded");
+		if (typeof t != "string" || t.length === 0 || t.length > 500) throw Error("Invalid text");
+		let r = O(n), s = /[ɑʋɛɪɔʊæøœʉɟʝɲŋʃʒθðɬɮɹɻɥɰʁˈˌ]/.test(t), c = t.startsWith("[") && t.endsWith("]") || s || r === "Scottish Gaelic", l = a === void 0 ? c : a, u = t.replace(/(^\[|\]$)/g, "").trim(), d = `${r}::${o}::${l}::${u}`, f = C.get(d);
+		if (f) return f;
+		let p = {
 			"English (North American)": {
 				languageCode: "en-US",
-				name: "en-US-Journey-F"
+				name: "en-US-Chirp3-HD-Dione"
 			},
 			"English (Received Pronunciation)": {
 				languageCode: "en-GB",
@@ -162,15 +157,11 @@ t.on("ready", async () => {
 			},
 			"English (Australian)": {
 				languageCode: "en-AU",
-				name: "en-AU-Chirp3-HD-Dione"
+				name: "en-AU-Neural2-A"
 			},
 			"English (Scottish)": {
 				languageCode: "en-GB",
-				name: "en-GB-Chirp3-HD-Calliope"
-			},
-			"English (Cockney)": {
-				languageCode: "en-GB",
-				name: "en-GB-Chirp3-HD-Calliope"
+				name: "en-GB-Neural2-B"
 			},
 			"Dutch (Netherlands)": {
 				languageCode: "nl-NL",
@@ -178,7 +169,7 @@ t.on("ready", async () => {
 			},
 			"Dutch (Flemish)": {
 				languageCode: "nl-BE",
-				name: "nl-BE-Standard-A"
+				name: "nl-BE-Wavenet-A"
 			},
 			"German (Northern)": {
 				languageCode: "de-DE",
@@ -186,11 +177,11 @@ t.on("ready", async () => {
 			},
 			"German (Austrian)": {
 				languageCode: "de-AT",
-				name: "de-AT-Standard-A"
+				name: "de-AT-Wavenet-A"
 			},
 			"German (Swiss)": {
 				languageCode: "de-CH",
-				name: "de-CH-Standard-A"
+				name: "de-CH-Wavenet-A"
 			},
 			"Spanish (Spain)": {
 				languageCode: "es-ES",
@@ -202,15 +193,15 @@ t.on("ready", async () => {
 			},
 			"Spanish (Argentinian)": {
 				languageCode: "es-AR",
-				name: "es-AR-Standard-A"
+				name: "es-AR-Neural2-A"
 			},
 			"Spanish (Colombian)": {
 				languageCode: "es-CO",
-				name: "es-CO-Standard-A"
+				name: "es-CO-Neural2-A"
 			},
 			"Spanish (Chilean)": {
 				languageCode: "es-CL",
-				name: "es-CL-Standard-A"
+				name: "es-CL-Neural2-A"
 			},
 			"Spanish (Cuban)": {
 				languageCode: "es-US",
@@ -222,7 +213,7 @@ t.on("ready", async () => {
 			},
 			"Portuguese (European)": {
 				languageCode: "pt-PT",
-				name: "pt-PT-Standard-A"
+				name: "pt-PT-Wavenet-A"
 			},
 			"Swedish (Stockholm)": {
 				languageCode: "sv-SE",
@@ -230,11 +221,11 @@ t.on("ready", async () => {
 			},
 			"Swedish (Skåne)": {
 				languageCode: "sv-SE",
-				name: "sv-SE-Chirp3-HD-Laomedeia"
+				name: "sv-SE-Neural2-C"
 			},
 			"Swedish (Finland)": {
 				languageCode: "sv-SE",
-				name: "sv-SE-Chirp3-HD-Laomedeia"
+				name: "sv-SE-Neural2-C"
 			},
 			"Finnish (Helsinki)": {
 				languageCode: "fi-FI",
@@ -246,22 +237,32 @@ t.on("ready", async () => {
 			}
 		}[r] || {
 			languageCode: "en-US",
-			name: "en-US-Journey-F"
-		}, c = /[ɑʋɛɪɔʊæøœʉɟʝɲŋʃʒθðɬɮɹɻɥɰʁˈˌ]/.test(t), l = t.startsWith("[") && t.endsWith("]") || c || r === "Scottish Gaelic", u = t.replace(/[\[\]]/g, "");
+			name: "en-US-Chirp3-HD-Dione"
+		}, m = p.languageCode || "en-US";
 		try {
+			if (!g) throw Error("TTS Client not initialized");
 			let e;
 			if (l) {
 				let t = k(u);
-				e = { ssml: `<speak><phoneme alphabet="ipa" ph="${t}">${t}</phoneme></speak>` };
-			} else e = { text: t };
-			let [n] = await g.synthesizeSpeech({
-				input: e,
-				voice: s,
-				audioConfig: { audioEncoding: "MP3" }
-			}), r = Buffer.from(n.audioContent);
-			return C.set(a, r), r;
-		} catch {
-			let e = {
+				e = `<speak xml:lang="${m}"><phoneme alphabet="ipa" ph="${t}">${t}</phoneme></speak>`;
+			} else e = `<speak xml:lang="${m}">${k(u)}</speak>`;
+			console.log(`[play-ipa] TTS Request (${m}): ${e}`);
+			let [t] = await g.synthesizeSpeech({
+				input: { ssml: e },
+				voice: {
+					languageCode: m,
+					name: p.name
+				},
+				audioConfig: {
+					audioEncoding: "MP3",
+					speakingRate: o
+				}
+			}), n = Buffer.from(t.audioContent || Buffer.alloc(0));
+			if (n.length > 0) return C.set(d, n), n;
+			throw Error("Empty audio content");
+		} catch (e) {
+			console.warn(`[play-ipa] Google TTS failure: ${e.message}`);
+			let t = {
 				"en-us": "en-us",
 				"en-gb": "en-gb",
 				de: "de",
@@ -269,38 +270,32 @@ t.on("ready", async () => {
 				es: "es",
 				pt: "pt",
 				fi: "fi",
-				sv: "sv",
-				gd: "gd"
-			}, t = "en-gb", n = r.toLowerCase();
-			n.includes("english") && n.includes("north american") ? t = e["en-us"] : n.includes("english") ? t = e["en-gb"] : n.includes("german") ? t = e.de : n.includes("dutch") ? t = e.nl : n.includes("spanish") ? t = e.es : n.includes("portuguese") ? t = e.pt : n.includes("finnish") ? t = e.fi : n.includes("swedish") ? t = e.sv : n.includes("gaelic") && (t = e.gd);
-			let o = `[[${u}]]`;
-			return new Promise((e, n) => {
+				sv: "sv"
+			}, n = "en-gb", a = r.toLowerCase();
+			a.includes("german") ? n = t.de : a.includes("dutch") ? n = t.nl : a.includes("spanish") ? n = t.es : a.includes("portuguese") ? n = t.pt : a.includes("finnish") ? n = t.fi : a.includes("swedish") ? n = t.sv : a.includes("english") && a.includes("north american") && (n = t["en-us"]);
+			let s = l ? `[[${u}]]` : u, c = Math.round(150 * o);
+			return new Promise((e, t) => {
 				let r = i("espeak-ng", [
 					"-v",
-					t,
+					n,
 					"-s",
-					"150",
+					String(c),
 					"--stdout",
-					o
-				]), s = Buffer.alloc(0);
-				r.stdout.on("data", (e) => {
-					s = Buffer.concat([s, e]);
-				}), r.on("close", (t) => {
-					t === 0 ? (C.set(a, s), e(s)) : n(/* @__PURE__ */ Error("espeak-ng synthesis failed"));
-				}), r.on("error", (e) => {
-					n(/* @__PURE__ */ Error("Failed to start espeak-ng"));
-				});
+					s
+				]), a = Buffer.alloc(0);
+				r.stdout.on("data", (e) => a = Buffer.concat([a, e])), r.on("close", (n) => {
+					n === 0 ? (C.set(d, a), e(a)) : t(/* @__PURE__ */ Error("espeak-ng failed"));
+				}), r.on("error", (e) => t(/* @__PURE__ */ Error("Failed to start espeak-ng")));
 			});
 		}
 	} catch (e) {
-		throw Error(e?.message || "Failed to play IPA");
+		throw Error(e?.message || "Failed to play audio");
 	}
 }), n.handle("evaluate-audio", async (e, { audioBlob: t, language: n, expectedText: r }) => {
 	try {
-		if (!e.senderFrame.url.startsWith("file://")) throw Error("Unauthorized origin");
-		if (!E.check("evaluate-audio")) throw Error("Rate limit exceeded. Please wait before trying again.");
+		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
+		if (!E.check("evaluate-audio")) throw Error("Rate limit exceeded");
 		if (!(t instanceof Uint8Array)) throw Error("Invalid audio data");
-		if (typeof r != "string" || r.length > 500) throw Error("Invalid expected text");
 		let i = O(n), a = Buffer.from(t), o = {
 			es: "es-US",
 			de: "de-DE",
@@ -313,91 +308,68 @@ t.on("ready", async () => {
 			s = t;
 			break;
 		}
-		let u = {
+		if (!_) throw Error("Speech client not initialized");
+		let [u] = await _.recognize({
 			audio: { content: a },
 			config: {
 				encoding: l.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.WEBM_OPUS,
 				sampleRateHertz: 48e3,
 				languageCode: s
 			}
-		}, [d] = await _.recognize(u), f = d.results?.map((e) => e.alternatives?.[0].transcript).join("\n") || "[No speech]", p = j(), m = `User practiced "${r}" in ${i}. Recognized: "${f}". Give 1-2 sentences of phonetic advice if there were issues, else say "Great job!".`;
+		}), d = u.results?.map((e) => e.alternatives?.[0].transcript).join("\n") || "[No speech]", f = j(), p = `User practiced "${r}" in ${i}. Recognized: "${d}". Give 1-2 sentences of phonetic advice.`;
 		return {
-			transcription: f,
-			feedback: (await p.generateContent(m)).response.text()
+			transcription: d,
+			feedback: (await f.generateContent(p)).response.text()
 		};
 	} catch {
 		return {
 			transcription: "Error",
-			feedback: "Could not evaluate speech. Please try again."
+			feedback: "Evaluation failed"
 		};
 	}
 }), n.handle("save-cards", async (e, t) => {
 	try {
-		if (!e.senderFrame.url.startsWith("file://")) throw Error("Unauthorized origin");
+		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
 		if (!Array.isArray(t)) throw Error("Cards must be an array");
-		if (t.length === 0 || t.length > 1e3) throw Error("Invalid number of cards (0-1000 allowed)");
 		return new Promise((e, n) => {
-			h.serialize(() => {
-				let n = 0, r = [];
-				t.forEach((e, t) => {
-					if (!e.language || !e.symbol) {
-						r.push(`Card ${t}: missing required fields`);
-						return;
-					}
-					let i = {
-						language: String(e.language).substring(0, 100),
-						symbol: String(e.symbol).substring(0, 10),
-						type: e.type || "consonant",
-						voicing: e.voicing || null,
-						place: e.place || null,
-						manner: e.manner || null,
-						height: e.height || null,
-						backness: e.backness || null,
-						roundedness: e.roundedness || null,
-						description: String(e.description || "").substring(0, 500),
-						example_word: String(e.example_word || "").substring(0, 100),
-						example_translation: String(e.example_translation || "").substring(0, 200),
-						example_ipa: String(e.example_ipa || "").substring(0, 100),
-						example_word2: String(e.example_word2 || "").substring(0, 100),
-						example_translation2: String(e.example_translation2 || "").substring(0, 200),
-						example_ipa2: String(e.example_ipa2 || "").substring(0, 100),
-						example_word3: String(e.example_word3 || "").substring(0, 100),
-						example_translation3: String(e.example_translation3 || "").substring(0, 200),
-						example_ipa3: String(e.example_ipa3 || "").substring(0, 100)
-					};
-					h.run("INSERT OR REPLACE INTO cards \n             (language, symbol, type, voicing, place, manner, height, backness, roundedness, description, \n              example_word, example_translation, example_ipa, \n              example_word2, example_translation2, example_ipa2, \n              example_word3, example_translation3, example_ipa3) \n             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-						i.language,
-						i.symbol,
-						i.type,
-						i.voicing,
-						i.place,
-						i.manner,
-						i.height,
-						i.backness,
-						i.roundedness,
-						i.description,
-						i.example_word,
-						i.example_translation,
-						i.example_ipa,
-						i.example_word2,
-						i.example_translation2,
-						i.example_ipa2,
-						i.example_word3,
-						i.example_translation3,
-						i.example_ipa3
+			let r = h;
+			if (!r) throw Error("DB not initialized");
+			r.serialize(() => {
+				let n = 0;
+				t.forEach((e) => {
+					r.run("INSERT OR REPLACE INTO cards \n            (language, symbol, type, voicing, place, manner, height, backness, roundedness, description, \n             example_word, example_translation, example_ipa, example_word2, example_translation2, example_ipa2, \n             example_word3, example_translation3, example_ipa3, example_sentence, example_sentence2, example_sentence3) \n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+						e.language,
+						e.symbol,
+						e.type,
+						e.voicing,
+						e.place,
+						e.manner,
+						e.height,
+						e.backness,
+						e.roundedness,
+						e.description,
+						e.example_word,
+						e.example_translation,
+						e.example_ipa,
+						e.example_word2,
+						e.example_translation2,
+						e.example_ipa2,
+						e.example_word3,
+						e.example_translation3,
+						e.example_ipa3,
+						e.example_sentence,
+						e.example_sentence2,
+						e.example_sentence3
 					], (e) => {
-						e ? r.push(`Card ${t}: ${e.message}`) : n++;
+						e || n++;
 					});
 				}), setTimeout(() => {
-					S.clear(), e({
-						saved: n,
-						errors: r.length > 0 ? r : void 0
-					});
+					S.clear(), e({ saved: n });
 				}, 500);
 			});
 		});
-	} catch (e) {
-		throw Error(e?.message || "Failed to save cards");
+	} catch {
+		throw Error("Save failed");
 	}
 });
 //#endregion

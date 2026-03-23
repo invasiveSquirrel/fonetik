@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, ChevronRight, ChevronLeft, Layers, RefreshCw } from 'lucide-react';
+import { Mic, MicOff, Volume2, AudioLines, Languages, ChevronRight, ChevronLeft, Layers, RefreshCw } from 'lucide-react';
 import './App.css';
 
 interface Card {
@@ -23,10 +23,13 @@ interface Card {
   example_word3?: string;
   example_translation3?: string;
   example_ipa3?: string;
+  example_sentence?: string;
+  example_sentence2?: string;
+  example_sentence3?: string;
 }
 
 const LANGUAGES = [
-  "English (North American)", "English (Received Pronunciation)", "English (Australian)", "English (Scottish)", "English (Cockney)",
+  "English (North American)", "English (Received Pronunciation)", "English (Australian)", "English (Scottish)",
   "Dutch (Netherlands)", "Dutch (Flemish)",
   "German (Northern)", "German (Austrian)", "German (Swiss)",
   "Spanish (Spain)", "Spanish (Mexican)", "Spanish (Argentinian)", "Spanish (Colombian)", "Spanish (Chilean)", "Spanish (Cuban)",
@@ -45,6 +48,13 @@ export default function App() {
   const [feedback, setFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [speakingRate, setSpeakingRate] = useState(1.0);
+  const [practiceText, setPracticeText] = useState<string | null>(null);
+  const [practiceFeedback, setPracticeFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
+  const [isAudioError, setIsAudioError] = useState(false);
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
     loadCards();
@@ -72,30 +82,44 @@ export default function App() {
     }
   };
 
-  const playIPA = async (text: string) => {
+  const playIPA = async (text: string, isIpa?: boolean) => {
     try {
       if (!text) {
         console.warn("No text to play");
         return;
       }
       // @ts-ignore
-      const audioBuffer = await window.electronAPI.playIpa(text, language);
+      const audioBuffer = await window.electronAPI.playIpa(text, language, speakingRate, isIpa);
+      setIsAudioError(false);
+
       if (!audioBuffer || audioBuffer.byteLength === 0) {
-        console.warn("Received empty audio buffer");
-        setFeedback({ transcription: 'Error', feedback: 'Audio generation failed. Please try again.' });
+        console.error("Received empty or null audio buffer for:", text);
+        setIsAudioError(true);
+        setFeedback({
+          transcription: 'Audio Error',
+          feedback: `Failed to generate audio for "${text}". Using fallback or service might be down.`
+        });
         return;
       }
-      const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
+
+      console.log(`Playing audio for "${text}" (isIpa: ${isIpa}, speed: ${speakingRate}) - Buffer size: ${audioBuffer.byteLength}`);
+      const blob = new Blob([audioBuffer], { type: 'audio/mp3' });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.play().catch(e => {
-        console.error("Playback failed", e);
-        setFeedback({ transcription: 'Error', feedback: 'Unable to play audio.' });
-      });
+
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+      };
+
+      try {
+        await audio.play();
+      } catch (playError) {
+        console.error("Audio play() failed:", playError);
+        setFeedback({ transcription: 'Playback Error', feedback: 'Could not play audio. Check your system volume or permissions.' });
+      }
     } catch (err: any) {
-      console.error("playIPA failed", err);
-      const errorMsg = err?.message || 'Audio playback failed';
-      setFeedback({ transcription: 'Error', feedback: errorMsg });
+      console.error("playIPA general error:", err);
+      setFeedback({ transcription: 'Error', feedback: 'An unexpected error occurred during playback.' });
     }
   };
 
@@ -115,23 +139,38 @@ export default function App() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      const chunks: Blob[] = [];
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
 
-      mr.ondataavailable = (e) => chunks.push(e.data);
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
       mr.onstop = async () => {
         try {
-          const blob = new Blob(chunks, { type: 'audio/webm' });
+          setIsLoading(true);
+          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const textToEvaluate = practiceText || currentCard?.symbol || '';
+
           // @ts-ignore
-          const result = await window.electronAPI.evaluateAudio(blob, language, currentCard.example_word);
-          setFeedback(result);
+          const result = await window.electronAPI.evaluateAudio(blob, language, textToEvaluate);
+
+          if (practiceText) {
+            setPracticeFeedback(result);
+          } else {
+            setFeedback(result);
+          }
         } catch (err: any) {
           console.error("Audio evaluation error:", err);
-          setFeedback({
+          const errorMsg = {
             transcription: 'Error',
             feedback: err?.message || 'Failed to evaluate pronunciation.'
-          });
+          };
+          if (practiceText) setPracticeFeedback(errorMsg);
+          else setFeedback(errorMsg);
         } finally {
           setIsRecording(false);
+          setIsLoading(false);
+          setPracticeText(null);
           stream.getTracks().forEach(track => track.stop());
         }
       };
@@ -149,6 +188,18 @@ export default function App() {
       });
       setIsRecording(false);
     }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const handlePracticeSentence = (sentence: string) => {
+    setPracticeText(sentence);
+    setPracticeFeedback(null);
+    startRecording();
   };
 
   const shuffleCards = () => {
@@ -175,6 +226,18 @@ export default function App() {
           <select value={language} onChange={(e) => setLanguage(e.target.value)} className="lang-select">
             {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
+          <div className="speed-control">
+            <span className="speed-label">Speed: {speakingRate}x</span>
+            <input
+              type="range"
+              min="0.5"
+              max="1.0"
+              step="0.1"
+              value={speakingRate}
+              onChange={(e) => setSpeakingRate(parseFloat(e.target.value))}
+              className="speed-slider"
+            />
+          </div>
           <button className="close-btn" onClick={() => window.close()}>×</button>
         </div>
       </header>
@@ -194,6 +257,11 @@ export default function App() {
           </div>
         ) : currentCard ? (
           <div className="card-scene">
+            {isAudioError && (
+              <div className="audio-error-banner">
+                ⚠️ Audio generation failed. Falling back to local synthesis...
+              </div>
+            )}
             <div className={`card ${showFront ? '' : 'is-flipped'}`} onClick={() => setShowFront(!showFront)}>
 
               {/* Front of Card */}
@@ -202,7 +270,7 @@ export default function App() {
                   <span className="ipa-symbol">{currentCard.symbol}</span>
 
                   <div className="speaker-and-tags">
-                    <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol); }}>
+                    <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol, true); }}>
                       <Volume2 size={40} />
                     </button>
 
@@ -231,19 +299,65 @@ export default function App() {
                 <div className="back-content">
                   <div className="examples-container">
                     {[
-                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa },
-                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2 },
-                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3 }
+                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa, sentence: currentCard.example_sentence },
+                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2, sentence: currentCard.example_sentence2 },
+                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3, sentence: currentCard.example_sentence3 }
                     ].filter(ex => ex.word).map((ex, i) => (
-                      <div key={i} className="example-row">
-                        <button className="audio-btn-mini" onClick={(e) => { e.stopPropagation(); playIPA(ex.ipa!); }}>
-                          <Volume2 size={14} />
-                        </button>
-                        <div className="example-text-group">
-                          <span className="word">{ex.word}</span>
-                          <span className="ipa">{ex.ipa}</span>
+                      <div key={i} className="example-row-container">
+                        <div className="example-row">
+                          <div className="example-audio-group">
+                            <button className="audio-btn-mini" title="Play Word (Orthography)" onClick={(e) => { e.stopPropagation(); playIPA(ex.word!, false); }}>
+                              <Volume2 size={12} />
+                            </button>
+                            {ex.ipa && (
+                              <button className="audio-btn-mini ipa-audio" title="Play IPA" onClick={(e) => { e.stopPropagation(); playIPA(ex.ipa!, true); }}>
+                                <AudioLines size={12} />
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            className={`audio-btn-mini practice-btn ${isRecording && practiceText === ex.word ? 'recording' : ''}`}
+                            title="Practice Word"
+                            onClick={(e) => { e.stopPropagation(); isRecording ? stopRecording() : handlePracticeSentence(ex.word!); }}
+                          >
+                            <Mic size={14} />
+                          </button>
+                          <div className="example-text-group">
+                            <span className="word">{ex.word}</span>
+                            <span className="ipa">{ex.ipa}</span>
+                          </div>
+                          <span className="translation">"{ex.trans}"</span>
                         </div>
-                        <span className="translation">"{ex.trans}"</span>
+                        {ex.sentence && (
+                          <div className="sentence-row-container">
+                            <div className="sentence-row">
+                              <button className="audio-btn-mini sentence-audio" title="Play Sentence" onClick={(e) => { e.stopPropagation(); playIPA(ex.sentence!, false); }}>
+                                <Volume2 size={12} />
+                              </button>
+                              <button
+                                className={`audio-btn-mini practice-btn ${isRecording && practiceText === ex.sentence ? 'recording' : ''}`}
+                                title="Practice Sentence"
+                                onClick={(e) => { e.stopPropagation(); isRecording ? stopRecording() : handlePracticeSentence(ex.sentence!); }}
+                              >
+                                <Mic size={12} />
+                              </button>
+                              <span className="sentence-label">Sentence:</span>
+                              <span className="sentence">{ex.sentence}</span>
+                            </div>
+                            {practiceFeedback && practiceText === ex.sentence && (
+                              <div className="practice-mini-feedback">
+                                <span className="feedback-score">{practiceFeedback.feedback}</span>
+                                <span className="feedback-text">Detected: {practiceFeedback.transcription}</span>
+                              </div>
+                            )}
+                            {practiceFeedback && practiceText === ex.word && (
+                              <div className="practice-mini-feedback">
+                                <span className="feedback-score">{practiceFeedback.feedback}</span>
+                                <span className="feedback-text">Detected: {practiceFeedback.transcription}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
