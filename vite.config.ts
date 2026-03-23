@@ -26,7 +26,15 @@ export default defineConfig({
                 'child_process', 
                 'module', 
                 'url',
+                'stream',
+                'util',
+                'events',
+                'crypto',
+                'zlib',
+                'buffer',
+                'assert',
                 '@google-cloud/speech', 
+                '@google-cloud/text-to-speech',
                 '@google/generative-ai'
               ],
               output: {

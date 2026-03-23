@@ -15,13 +15,11 @@ const genAI = new GoogleGenerativeAI(finalKey);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
 const LANGUAGES = [
-  "English (North American)", "English (Received Pronunciation)", "English (Australian)", "English (Scottish)", "English (Cockney)",
-  "Dutch (Netherlands)", "Dutch (Flemish)",
-  "German (Northern)", "German (Austrian)", "German (Swiss)",
-  "Spanish (Spain)", "Spanish (Mexican)", "Spanish (Argentinian)", "Spanish (Colombian)", "Spanish (Chilean)", "Spanish (Cuban)",
-  "Portuguese (Brazilian)", "Portuguese (European)",
-  "Swedish (Stockholm)", "Swedish (Skåne)", "Swedish (Finland)",
-  "Finnish (Helsinki)"
+  "English (North American)", "English (Received Pronunciation)",
+  "Spanish (Spain)", "Spanish (Mexican)",
+  "Portuguese (European)", "Portuguese (Brazilian)",
+  "German (Northern)", "Dutch (Netherlands)",
+  "Swedish (Stockholm)", "Scottish Gaelic"
 ];
 
 async function sleep(ms) {
@@ -30,31 +28,35 @@ async function sleep(ms) {
 
 async function generateBatch(language, offset, existingSymbols) {
   const prompt = `
-    ACT AS AN EXPERT PHONOLOGIST. Dialect: ${language}.
-    Generate a JSON list of 15 UNIQUE IPA practice cards (Batch starting at ${offset}).
+    ACT AS AN EXPERT PHONOLOGIST AND PHONETICIAN. Target Dialect: ${language}.
+    Generate a JSON list of 15 UNIQUE IPA entries (Batch starting at ${offset}).
+    
+    GOAL: Provide a comprehensive set of phonemes and allophones (e.g., aspirated vs unaspirated, taps, glottalization, dialect-specific realizations like the 'w' in Dutch or 'sj'-sound in Swedish).
     
     EXCLUDE THESE SYMBOLS ALREADY IN DB: ${existingSymbols.join(', ')}
 
     REQUIREMENTS:
-    1. Focus on standard phonemes, allophones, diphthongs, or consonant clusters.
+    1. Include the IPA symbol/transcription (e.g., [tʰ], [ɾ], [ç], [ɧ]).
     2. Provide THREE EXAMPLES per sound. Each example MUST have:
-       - "word": Native script.
+       - "word": Native orthography.
        - "trans": English translation.
-       - "ipa": Full IPA of that word in ${language}.
-    3. Articulatory classification (Voicing, Place, Manner OR Height, Backness, Roundedness).
+       - "ipa": Full, narrow IPA transcription of that word.
+    3. Classification:
+       - For consonants: voicing, place, manner.
+       - For vowels: height, backness, roundedness (nasalization if applicable).
+    4. Provide a clear, technical description of the articulatory gesture.
 
     Format as JSON list:
     [
       {
-        "symbol": "[tʰ]",
-        "type": "consonant",
-        "voicing": "voiceless",
-        "place": "alveolar",
-        "manner": "plosive",
-        "description": "Aspirated voiceless alveolar plosive.",
-        "example_word": "top", "example_translation": "top", "example_ipa": "[tʰɒp]",
-        "example_word2": "ten", "example_translation": "ten", "example_ipa": "[tʰɛn]",
-        "example_word3": "take", "example_translation": "take", "example_ipa": "[tʰeɪk]"
+        "symbol": "[symbol]",
+        "type": "consonant|vowel",
+        "voicing": "...", "place": "...", "manner": "...",
+        "height": "...", "backness": "...", "roundedness": "...",
+        "description": "...",
+        "example_word": "...", "example_translation": "...", "example_ipa": "...",
+        "example_word2": "...", "example_translation2": "...", "example_ipa2": "...",
+        "example_word3": "...", "example_translation3": "...", "example_ipa3": "..."
       }
     ]
   `;
@@ -72,8 +74,11 @@ async function generateBatch(language, offset, existingSymbols) {
 }
 
 async function main() {
-  console.log("🛠 Starting chunked data generation (Target: 80 per dialect)...");
-  
+  const appDbPath = path.join(process.env.HOME, '.config/fonetik/db/fonetik.db');
+  const db = new sqlite3.Database(appDbPath);
+
+  console.log(`🛠 Starting chunked data generation in: ${appDbPath}`);
+
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS cards (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,13 +92,16 @@ async function main() {
   });
 
   for (const lang of LANGUAGES) {
-    let currentCount = await new Promise(r => db.get("SELECT COUNT(*) as c FROM cards WHERE language=?", [lang], (e, row) => r(row.c || 0)));
-    
-    console.log(`\n🌍 Dialect: ${lang} (Current: ${currentCount}/80)`);
-    
-    while (currentCount < 80) {
+    let currentCount = await new Promise(r => db.get("SELECT COUNT(*) as c FROM cards WHERE language=?", [lang], (e, row) => r(row ? row.c : 0)));
+
+    // Custom targets for complex languages
+    const target = (lang === "Swedish (Stockholm)" || lang === "Scottish Gaelic") ? 250 : 100;
+
+    console.log(`\n🌍 Dialect: ${lang} (Current: ${currentCount}/${target})`);
+
+    while (currentCount < target) {
       const existing = await new Promise(r => db.all("SELECT symbol FROM cards WHERE language=?", [lang], (e, rows) => r(rows.map(row => row.symbol))));
-      
+
       const batch = await generateBatch(lang, currentCount, existing);
       if (batch.length === 0) {
         console.warn("Empty batch or error, retrying in 20s...");
@@ -108,25 +116,28 @@ async function main() {
         example_word3, example_translation3, example_ipa3
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-      db.serialize(() => {
-        for (const card of batch) {
-          stmt.run(
-            lang, card.symbol, card.voicing || null, card.place || null, card.manner || null,
-            card.height || null, card.backness || null, card.roundedness || null, card.type, card.description,
-            card.example_word, card.example_translation, card.example_ipa,
-            card.example_word2 || null, card.example_translation2 || null, card.example_ipa2 || null,
-            card.example_word3 || null, card.example_translation3 || null, card.example_ipa3 || null
-          );
-        }
-        stmt.finalize();
+      await new Promise((resolve) => {
+        db.serialize(() => {
+          for (const card of batch) {
+            stmt.run(
+              lang, card.symbol, card.voicing || null, card.place || null, card.manner || null,
+              card.height || null, card.backness || null, card.roundedness || null, card.type, card.description,
+              card.example_word, card.example_translation, card.example_ipa,
+              card.example_word2 || null, card.example_translation2 || null, card.example_ipa2 || null,
+              card.example_word3 || null, card.example_translation3 || null, card.example_ipa3 || null
+            );
+          }
+          stmt.finalize(() => resolve());
+        });
       });
 
       currentCount += batch.length;
-      console.log(`✅ Progress: ${currentCount}/80`);
-      await sleep(15000); // Wait between batches
+      console.log(`✅ Progress: ${currentCount}/${target}`);
+      await sleep(30000); // 30s wait between batches
     }
   }
   console.log("🏁 All dialects exhaustive.");
+  db.close();
 }
 
 main().catch(console.error);

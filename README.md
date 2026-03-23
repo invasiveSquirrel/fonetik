@@ -54,3 +54,27 @@ This app uses AI to generate sounds and high-quality voices to read them.
 
 ### 2. The "Voice" Credentials (For high-quality speech)
 To hear the neural voices, the app looks for a file named `google-credentials.json` in the `panglossia` folder (if you use both apps) or your system path. If you do not have this, the app will automatically fall back to your computer's built-in voices.
+
+---
+
+## 🧪 Testing
+
+Fonetik includes a comprehensive test suite with **38 passing tests** verifying:
+- Database operations and schema integrity
+- API configuration and multi-language support
+- Safe concurrent execution with wordhord, strutur, and panglossia
+- Resource isolation and no port/file conflicts
+
+### Quick Test Commands
+```bash
+npm test              # Run full test suite with coverage
+npm run test:unit     # Database & API configuration tests
+npm run test:integration  # Language data & workflow tests  
+npm run test:concurrent   # Multi-app resource compatibility tests
+npm run test:watch    # Watch mode for development
+```
+
+📋 **Full Test Report**: See [TEST_REPORT.md](./TEST_REPORT.md)  
+📖 **Testing Guide**: See [TESTING.md](./TESTING.md)
+
+**Compatibility Verified**: ✅ Runs safely with wordhord, strutur, and panglossia

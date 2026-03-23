@@ -43,35 +43,59 @@ export default function App() {
   const [showFront, setShowFront] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [feedback, setFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadCards();
   }, [language]);
 
   const loadCards = async () => {
-    // @ts-ignore
-    const data = await window.electronAPI.getCards(language);
-    setCards(data);
-    setCurrentIndex(0);
-    setShowFront(true);
+    setIsLoading(true);
+    setError(null);
+    try {
+      // @ts-ignore
+      const data = await window.electronAPI.getCards(language);
+      setCards(data || []);
+      setCurrentIndex(0);
+      setShowFront(true);
+      if (!data || data.length === 0) {
+        setError(`No cards found for ${language}.`);
+      }
+    } catch (err: any) {
+      console.error("Failed to load cards:", err);
+      setCards([]);
+      setError(err?.message || "Failed to load cards.");
+      setFeedback({ transcription: 'Error', feedback: 'Failed to load cards. Please try again.' });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const playIPA = async (text: string) => {
     try {
-      console.log(`Playing IPA: ${text} for ${language}`);
+      if (!text) {
+        console.warn("No text to play");
+        return;
+      }
       // @ts-ignore
       const audioBuffer = await window.electronAPI.playIpa(text, language);
       if (!audioBuffer || audioBuffer.byteLength === 0) {
         console.warn("Received empty audio buffer");
+        setFeedback({ transcription: 'Error', feedback: 'Audio generation failed. Please try again.' });
         return;
       }
-      console.log(`Received buffer of size: ${audioBuffer.byteLength}`);
       const blob = new Blob([audioBuffer], { type: 'audio/mpeg' });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-      audio.play().catch(e => console.error("Playback failed", e));
-    } catch (err) {
+      audio.play().catch(e => {
+        console.error("Playback failed", e);
+        setFeedback({ transcription: 'Error', feedback: 'Unable to play audio.' });
+      });
+    } catch (err: any) {
       console.error("playIPA failed", err);
+      const errorMsg = err?.message || 'Audio playback failed';
+      setFeedback({ transcription: 'Error', feedback: errorMsg });
     }
   };
 
@@ -92,21 +116,38 @@ export default function App() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       const chunks: Blob[] = [];
-      
+
       mr.ondataavailable = (e) => chunks.push(e.data);
       mr.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        // @ts-ignore
-        const result = await window.electronAPI.evaluateAudio(blob, language, currentCard.example_word);
-        setFeedback(result);
-        setIsRecording(false);
+        try {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          // @ts-ignore
+          const result = await window.electronAPI.evaluateAudio(blob, language, currentCard.example_word);
+          setFeedback(result);
+        } catch (err: any) {
+          console.error("Audio evaluation error:", err);
+          setFeedback({
+            transcription: 'Error',
+            feedback: err?.message || 'Failed to evaluate pronunciation.'
+          });
+        } finally {
+          setIsRecording(false);
+          stream.getTracks().forEach(track => track.stop());
+        }
       };
 
       mr.start();
       setIsRecording(true);
-      setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 4000);
-    } catch (err) {
+      setTimeout(() => {
+        if (mr.state === 'recording') mr.stop();
+      }, 4000);
+    } catch (err: any) {
       console.error("Recording failed", err);
+      setFeedback({
+        transcription: 'Error',
+        feedback: err?.message || 'Microphone access denied or unavailable.'
+      });
+      setIsRecording(false);
     }
   };
 
@@ -139,20 +180,32 @@ export default function App() {
       </header>
 
       <main>
-        {currentCard ? (
+        {isLoading ? (
+          <div className="loading">
+            <RefreshCw size={48} className="animate-spin" />
+            <p>Loading exhaustive IPA data...</p>
+          </div>
+        ) : error ? (
+          <div className="error-state">
+            <p className="error-msg">{error}</p>
+            <button className="retry-btn" onClick={loadCards}>
+              <RefreshCw size={20} /> Retry
+            </button>
+          </div>
+        ) : currentCard ? (
           <div className="card-scene">
             <div className={`card ${showFront ? '' : 'is-flipped'}`} onClick={() => setShowFront(!showFront)}>
-              
+
               {/* Front of Card */}
               <div className="card-face card-front">
                 <div className="symbol-display">
                   <span className="ipa-symbol">{currentCard.symbol}</span>
-                  
+
                   <div className="speaker-and-tags">
                     <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol); }}>
                       <Volume2 size={40} />
                     </button>
-                    
+
                     <div className="classification-tags-vertical">
                       {currentCard.type === 'consonant' ? (
                         <>
@@ -196,7 +249,7 @@ export default function App() {
                   </div>
 
                   <div className="voice-evaluation">
-                    <button 
+                    <button
                       className={`mic-btn ${isRecording ? 'recording' : ''}`}
                       onClick={(e) => { e.stopPropagation(); startRecording(); }}
                     >
@@ -221,7 +274,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <div className="loading">Loading exhaustive IPA data...</div>
+          <div className="empty-state">No cards available.</div>
         )}
       </main>
     </div>
