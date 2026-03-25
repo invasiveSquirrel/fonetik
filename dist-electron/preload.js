@@ -1,18 +1,18 @@
-import { contextBridge as e, ipcRenderer as t } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 //#region electron/preload.ts
-e.exposeInMainWorld("electronAPI", {
-	getCards: (e) => t.invoke("get-cards", e),
-	playIpa: (e, n, r, i) => t.invoke("play-ipa", {
-		text: e,
-		language: n,
-		speed: r,
-		isIpa: i
+contextBridge.exposeInMainWorld("electronAPI", {
+	getCards: (language) => ipcRenderer.invoke("get-cards", language),
+	playIpa: (text, language, speed, isIpa) => ipcRenderer.invoke("play-ipa", {
+		text,
+		language,
+		speed,
+		isIpa
 	}),
-	saveCards: (e) => t.invoke("save-cards", e),
-	evaluateAudio: (e, n, r) => t.invoke("evaluate-audio", {
-		audioBlob: e,
-		language: n,
-		expectedText: r
+	saveCards: (cards) => ipcRenderer.invoke("save-cards", cards),
+	evaluateAudio: (audioBlob, language, expectedText) => ipcRenderer.invoke("evaluate-audio", {
+		audioBlob,
+		language,
+		expectedText
 	})
 });
 //#endregion

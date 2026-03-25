@@ -64,8 +64,15 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     try {
+      let data;
       // @ts-ignore
-      const data = await window.electronAPI.getCards(language);
+      if (window.electronAPI) {
+        // @ts-ignore
+        data = await window.electronAPI.getCards(language);
+      } else {
+        const resp = await fetch(`http://localhost:8004/cards/${encodeURIComponent(language)}`);
+        data = await resp.json();
+      }
       setCards(data || []);
       setCurrentIndex(0);
       setShowFront(true);
@@ -76,7 +83,6 @@ export default function App() {
       console.error("Failed to load cards:", err);
       setCards([]);
       setError(err?.message || "Failed to load cards.");
-      setFeedback({ transcription: 'Error', feedback: 'Failed to load cards. Please try again.' });
     } finally {
       setIsLoading(false);
     }
@@ -84,42 +90,34 @@ export default function App() {
 
   const playIPA = async (text: string, isIpa?: boolean) => {
     try {
-      if (!text) {
-        console.warn("No text to play");
-        return;
-      }
+      if (!text) return;
+      let audioBuffer;
       // @ts-ignore
-      const audioBuffer = await window.electronAPI.playIpa(text, language, speakingRate, isIpa);
+      if (window.electronAPI) {
+        // @ts-ignore
+        audioBuffer = await window.electronAPI.playIpa(text, language, speakingRate, isIpa);
+      } else {
+        const resp = await fetch('http://localhost:8004/play-ipa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, language, speed: speakingRate, isIpa })
+        });
+        audioBuffer = await resp.arrayBuffer();
+      }
       setIsAudioError(false);
 
       if (!audioBuffer || audioBuffer.byteLength === 0) {
-        console.error("Received empty or null audio buffer for:", text);
         setIsAudioError(true);
-        setFeedback({
-          transcription: 'Audio Error',
-          feedback: `Failed to generate audio for "${text}". Using fallback or service might be down.`
-        });
         return;
       }
 
-      console.log(`Playing audio for "${text}" (isIpa: ${isIpa}, speed: ${speakingRate}) - Buffer size: ${audioBuffer.byteLength}`);
       const blob = new Blob([audioBuffer], { type: 'audio/mp3' });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
-
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-      };
-
-      try {
-        await audio.play();
-      } catch (playError) {
-        console.error("Audio play() failed:", playError);
-        setFeedback({ transcription: 'Playback Error', feedback: 'Could not play audio. Check your system volume or permissions.' });
-      }
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
     } catch (err: any) {
-      console.error("playIPA general error:", err);
-      setFeedback({ transcription: 'Error', feedback: 'An unexpected error occurred during playback.' });
+      console.error("playIPA error:", err);
     }
   };
 
@@ -149,10 +147,27 @@ export default function App() {
         try {
           setIsLoading(true);
           const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          const textToEvaluate = practiceText || currentCard?.symbol || '';
+          const textToEvaluate = practiceText || (currentCard ? currentCard.symbol : '');
 
+          let result;
           // @ts-ignore
-          const result = await window.electronAPI.evaluateAudio(blob, language, textToEvaluate);
+          if (window.electronAPI) {
+            // @ts-ignore
+            result = await window.electronAPI.evaluateAudio(blob, language, textToEvaluate);
+          } else {
+            // Web fallback using Sidecar
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            await new Promise((resolve) => { reader.onloadend = resolve; });
+            const base64data = (reader.result as string).split(',')[1];
+            
+            const resp = await fetch('http://localhost:8004/evaluate-audio', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ audioBlob: base64data, language, expectedText: textToEvaluate })
+            });
+            result = await resp.json();
+          }
 
           if (practiceText) {
             setPracticeFeedback(result);

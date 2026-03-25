@@ -1,67 +1,124 @@
-import { BrowserWindow as e, app as t, ipcMain as n } from "electron";
-import r from "path";
-import { spawn as i } from "child_process";
-import a from "sqlite3";
-import * as o from "fs";
-import { fileURLToPath as s } from "url";
-import { SpeechClient as c, protos as l } from "@google-cloud/speech";
-import { TextToSpeechClient as u } from "@google-cloud/text-to-speech";
-import { GoogleGenerativeAI as d } from "@google/generative-ai";
+import { BrowserWindow, app, ipcMain } from "electron";
+import path from "path";
+import { spawn } from "child_process";
+import sqlite3 from "sqlite3";
+import * as fs from "fs";
+import { fileURLToPath } from "url";
+import { SpeechClient, protos } from "@google-cloud/speech";
+import { TextToSpeechClient } from "@google-cloud/text-to-speech";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 //#region electron/main.ts
-var f = s(import.meta.url), p = r.dirname(f);
-t.commandLine.appendSwitch("disable-gpu"), t.commandLine.appendSwitch("disable-software-rasterizer"), t.commandLine.appendSwitch("no-sandbox");
-var m = null, h = null, g = null, _ = null, v = null, y = null;
-async function b() {
-	let e = r.join(t.getPath("userData"), "db");
-	o.existsSync(e) || o.mkdirSync(e, {
+var __filename = fileURLToPath(import.meta.url);
+var __dirname = path.dirname(__filename);
+app.commandLine.appendSwitch("disable-gpu");
+app.commandLine.appendSwitch("disable-software-rasterizer");
+app.commandLine.appendSwitch("no-sandbox");
+var mainWindow = null;
+var db = null;
+var ttsClient = null;
+var speechClient = null;
+var genAI = null;
+var model = null;
+async function initializeApp() {
+	const dbDir = path.join(app.getPath("userData"), "db");
+	if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, {
 		mode: 448,
-		recursive: !0
+		recursive: true
 	});
-	let n = r.join(e, "fonetik.db");
-	h = new a.Database(n, (e) => {
-		if (e) {
-			console.error("Database connection error:", e);
+	const dbPath = path.join(dbDir, "fonetik.db");
+	db = new sqlite3.Database(dbPath, (err) => {
+		if (err) {
+			console.error("Database connection error:", err);
 			return;
 		}
-		h?.serialize(() => {
-			h?.run("\n        CREATE TABLE IF NOT EXISTS cards (\n          id INTEGER PRIMARY KEY AUTOINCREMENT,\n          language TEXT,\n          symbol TEXT,\n          voicing TEXT,\n          place TEXT,\n          manner TEXT,\n          height TEXT,\n          backness TEXT,\n          roundedness TEXT,\n          type TEXT,\n          description TEXT,\n          example_word TEXT,\n          example_translation TEXT,\n          example_ipa TEXT,\n          example_word2 TEXT,\n          example_translation2 TEXT,\n          example_ipa2 TEXT,\n          example_word3 TEXT,\n          example_translation3 TEXT,\n          example_ipa3 TEXT,\n          example_sentence TEXT,\n          example_sentence2 TEXT,\n          example_sentence3 TEXT,\n          UNIQUE(language, symbol, example_word)\n        )\n      ", (e) => {
-				e ? console.error("Error creating cards table:", e) : console.log("Database initialized or already exists");
+		db?.serialize(() => {
+			db?.run(`
+        CREATE TABLE IF NOT EXISTS cards (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          language TEXT,
+          symbol TEXT,
+          voicing TEXT,
+          place TEXT,
+          manner TEXT,
+          height TEXT,
+          backness TEXT,
+          roundedness TEXT,
+          type TEXT,
+          description TEXT,
+          example_word TEXT,
+          example_translation TEXT,
+          example_ipa TEXT,
+          example_word2 TEXT,
+          example_translation2 TEXT,
+          example_ipa2 TEXT,
+          example_word3 TEXT,
+          example_translation3 TEXT,
+          example_ipa3 TEXT,
+          example_sentence TEXT,
+          example_sentence2 TEXT,
+          example_sentence3 TEXT,
+          UNIQUE(language, symbol, example_word)
+        )
+      `, (err) => {
+				if (err) console.error("Error creating cards table:", err);
+				else console.log("Database initialized or already exists");
 			});
 		});
 	});
-	let i = [process.env.GOOGLE_APPLICATION_CREDENTIALS, r.join(r.dirname(t.getPath("userData")), "panglossia", "google-credentials.json")].filter((e) => typeof e == "string" && o.existsSync(e));
-	i.length > 0 && (process.env.GOOGLE_APPLICATION_CREDENTIALS = i[0]), g = new u(), _ = new c();
+	const credentialPaths = [process.env.GOOGLE_APPLICATION_CREDENTIALS, path.join(path.dirname(app.getPath("userData")), "panglossia", "google-credentials.json")].filter((p) => typeof p === "string" && fs.existsSync(p));
+	if (credentialPaths.length > 0) process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialPaths[0];
+	ttsClient = new TextToSpeechClient();
+	speechClient = new SpeechClient();
 }
-var x = class {
-	constructor(e = 500, t = 3e5) {
-		this.maxSize = e, this.ttlMs = t, this.map = /* @__PURE__ */ new Map();
+var Cache = class {
+	constructor(maxSize = 500, ttlMs = 3e5) {
+		this.maxSize = maxSize;
+		this.ttlMs = ttlMs;
+		this.map = /* @__PURE__ */ new Map();
 	}
-	get(e) {
-		let t = this.map.get(e);
-		return t ? Date.now() - t.timestamp > this.ttlMs ? (this.map.delete(e), null) : t.data : null;
-	}
-	set(e, t) {
-		if (this.map.size >= this.maxSize) {
-			let e = [...this.map.entries()].sort((e, t) => e[1].timestamp - t[1].timestamp)[0];
-			this.map.delete(e[0]);
+	get(key) {
+		const entry = this.map.get(key);
+		if (!entry) return null;
+		if (Date.now() - entry.timestamp > this.ttlMs) {
+			this.map.delete(key);
+			return null;
 		}
-		this.map.set(e, {
-			data: t,
+		return entry.data;
+	}
+	set(key, data) {
+		if (this.map.size >= this.maxSize) {
+			const oldest = [...this.map.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+			this.map.delete(oldest[0]);
+		}
+		this.map.set(key, {
+			data,
 			timestamp: Date.now()
 		});
 	}
 	clear() {
 		this.map.clear();
 	}
-}, S = new x(100, 300 * 1e3), C = new x(500, 3600 * 1e3), w = class {
-	constructor(e) {
-		this.maxPerMinute = e, this.callTimes = /* @__PURE__ */ new Map();
+};
+var cardCache = new Cache(100, 300 * 1e3);
+var audioCache = new Cache(500, 3600 * 1e3);
+var RateLimiter = class {
+	constructor(maxPerMinute) {
+		this.maxPerMinute = maxPerMinute;
+		this.callTimes = /* @__PURE__ */ new Map();
 	}
-	check(e) {
-		let t = Date.now(), n = t - 6e4, r = (this.callTimes.get(e) || []).filter((e) => e > n);
-		return r.length >= this.maxPerMinute ? !1 : (r.push(t), this.callTimes.set(e, r), !0);
+	check(id) {
+		const now = Date.now();
+		const oneMinuteAgo = now - 6e4;
+		const calls = (this.callTimes.get(id) || []).filter((t) => t > oneMinuteAgo);
+		if (calls.length >= this.maxPerMinute) return false;
+		calls.push(now);
+		this.callTimes.set(id, calls);
+		return true;
 	}
-}, T = new w(30), E = new w(15), D = [
+};
+var ttsRateLimiter = new RateLimiter(30);
+var speechRateLimiter = new RateLimiter(15);
+var VALID_LANGUAGES = [
 	"English (North American)",
 	"English (Received Pronunciation)",
 	"English (Australian)",
@@ -85,68 +142,90 @@ var x = class {
 	"Finnish (Helsinki)",
 	"Scottish Gaelic"
 ];
-function O(e) {
-	if (typeof e != "string" || !D.includes(e)) throw Error("Invalid language");
-	return e;
+function validateLanguage(lang) {
+	if (typeof lang !== "string" || !VALID_LANGUAGES.includes(lang)) throw new Error("Invalid language");
+	return lang;
 }
-function k(e) {
-	return e.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+function escapeXml(str) {
+	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
-function A() {
-	let e = process.env.GOOGLE_API_KEY;
-	if (!e || e.length < 10) throw Error("GOOGLE_API_KEY not configured");
-	return e;
+function getAPIKey() {
+	const key = process.env.GOOGLE_API_KEY;
+	if (!key || key.length < 10) throw new Error("GOOGLE_API_KEY not configured");
+	return key;
 }
-function j() {
-	return y ||= (v = new d(A()), v.getGenerativeModel({ model: "gemini-2.0-flash" })), y;
+function getModel() {
+	if (!model) {
+		genAI = new GoogleGenerativeAI(getAPIKey());
+		model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+	}
+	return model;
 }
-function M() {
-	m = new e({
+function createWindow() {
+	mainWindow = new BrowserWindow({
 		width: 1200,
 		height: 900,
-		frame: !1,
-		autoHideMenuBar: !0,
+		frame: false,
+		autoHideMenuBar: true,
 		backgroundColor: "#0f172a",
 		webPreferences: {
-			preload: r.join(p, "preload.js"),
-			nodeIntegration: !1,
-			contextIsolation: !0,
-			sandbox: !1
+			preload: path.join(__dirname, "preload.js"),
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: false
 		}
-	}), m.loadFile(r.join(p, "../dist/index.html")), m.on("closed", () => {
-		m = null;
+	});
+	mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+	mainWindow.on("closed", () => {
+		mainWindow = null;
 	});
 }
-t.on("ready", async () => {
-	await b(), M();
-}), t.on("window-all-closed", () => {
-	process.platform !== "darwin" && (h && h.close(), t.quit());
-}), n.handle("get-cards", async (e, t) => {
+app.on("ready", async () => {
+	await initializeApp();
+	createWindow();
+});
+app.on("window-all-closed", () => {
+	if (process.platform !== "darwin") {
+		if (db) db.close();
+		app.quit();
+	}
+});
+ipcMain.handle("get-cards", async (event, language) => {
 	try {
-		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
-		let n = O(t), r = S.get(n);
-		if (r) return r;
-		let i = h;
-		if (!i) throw Error("Database not initialized");
-		let a = await new Promise((e, t) => {
-			i.all("SELECT * FROM cards WHERE language = ? LIMIT 1000", [n], (n, r) => {
-				n ? t(n) : e(r);
+		if (!(event.senderFrame?.url || event.sender?.getURL?.() || "").startsWith("file://")) throw new Error("Unauthorized origin");
+		const validLang = validateLanguage(language);
+		const cached = cardCache.get(validLang);
+		if (cached) return cached;
+		const database = db;
+		if (!database) throw new Error("Database not initialized");
+		const result = await new Promise((resolve, reject) => {
+			database.all("SELECT * FROM cards WHERE language = ? LIMIT 1000", [validLang], (err, rows) => {
+				if (err) reject(err);
+				else resolve(rows);
 			});
 		}) || [];
-		return S.set(n, a), a;
-	} catch (e) {
-		throw Error(e?.message || "Failed to get cards");
+		cardCache.set(validLang, result);
+		return result;
+	} catch (error) {
+		throw new Error(error?.message || "Failed to get cards");
 	}
-}), n.handle("play-ipa", async (e, { text: t, language: n, speed: r, isIpa: a }) => {
-	let o = r || 1;
-	console.log(`IPC play-ipa: text="${t}", lang="${n}", speed=${o}, isIpa=${a}`);
+});
+ipcMain.handle("play-ipa", async (event, { text, language, speed, isIpa }) => {
+	const speakingRate = speed || 1;
+	console.log(`IPC play-ipa: text="${text}", lang="${language}", speed=${speakingRate}, isIpa=${isIpa}`);
 	try {
-		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
-		if (!T.check("play-ipa")) throw Error("Rate limit exceeded");
-		if (typeof t != "string" || t.length === 0 || t.length > 500) throw Error("Invalid text");
-		let r = O(n), s = /[ɑʋɛɪɔʊæøœʉɟʝɲŋʃʒθðɬɮɹɻɥɰʁˈˌ]/.test(t), c = t.startsWith("[") && t.endsWith("]") || s || r === "Scottish Gaelic", l = a === void 0 ? c : a, u = t.replace(/(^\[|\]$)/g, "").trim(), d = `${r}::${o}::${l}::${u}`, f = C.get(d);
-		if (f) return f;
-		let p = {
+		if (!(event.senderFrame?.url || event.sender?.getURL?.() || "").startsWith("file://")) throw new Error(`Unauthorized origin`);
+		if (!ttsRateLimiter.check("play-ipa")) throw new Error("Rate limit exceeded");
+		if (typeof text !== "string" || text.length === 0 || text.length > 500) throw new Error("Invalid text");
+		const validLang = validateLanguage(language);
+		const containsIpaDetected = /[ɑʋɛɪɔʊæøœʉɟʝɲŋʃʒθðɬɮɹɻɥɰʁˈˌ]/.test(text);
+		const isIpaDetected = text.startsWith("[") && text.endsWith("]") || containsIpaDetected || validLang === "Scottish Gaelic";
+		const finalIsIpa = isIpa !== void 0 ? isIpa : isIpaDetected;
+		const cleanText = text.replace(/(^\[|\]$)/g, "").trim();
+		const cacheKey = `${validLang}::${speakingRate}::${finalIsIpa}::${cleanText}`;
+		const cached = audioCache.get(cacheKey);
+		if (cached) return cached;
+		const selectedVoice = {
 			"English (North American)": {
 				languageCode: "en-US",
 				name: "en-US-Chirp3-HD-Dione"
@@ -235,141 +314,176 @@ t.on("ready", async () => {
 				languageCode: "en-GB",
 				name: "en-GB-Standard-A"
 			}
-		}[r] || {
+		}[validLang] || {
 			languageCode: "en-US",
 			name: "en-US-Chirp3-HD-Dione"
-		}, m = p.languageCode || "en-US";
+		};
+		const langCode = selectedVoice.languageCode || "en-US";
 		try {
-			if (!g) throw Error("TTS Client not initialized");
-			let e;
-			if (l) {
-				let t = k(u);
-				e = `<speak xml:lang="${m}"><phoneme alphabet="ipa" ph="${t}">${t}</phoneme></speak>`;
-			} else e = `<speak xml:lang="${m}">${k(u)}</speak>`;
-			console.log(`[play-ipa] TTS Request (${m}): ${e}`);
-			let [t] = await g.synthesizeSpeech({
-				input: { ssml: e },
+			if (!ttsClient) throw new Error("TTS Client not initialized");
+			let ssml;
+			if (finalIsIpa) {
+				const escapedIpa = escapeXml(cleanText);
+				ssml = `<speak xml:lang="${langCode}"><phoneme alphabet="ipa" ph="${escapedIpa}">${escapedIpa}</phoneme></speak>`;
+			} else ssml = `<speak xml:lang="${langCode}">${escapeXml(cleanText)}</speak>`;
+			console.log(`[play-ipa] TTS Request (${langCode}): ${ssml}`);
+			const [response] = await ttsClient.synthesizeSpeech({
+				input: { ssml },
 				voice: {
-					languageCode: m,
-					name: p.name
+					languageCode: langCode,
+					name: selectedVoice.name
 				},
 				audioConfig: {
 					audioEncoding: "MP3",
-					speakingRate: o
+					speakingRate
 				}
-			}), n = Buffer.from(t.audioContent || Buffer.alloc(0));
-			if (n.length > 0) return C.set(d, n), n;
-			throw Error("Empty audio content");
-		} catch (e) {
-			console.warn(`[play-ipa] Google TTS failure: ${e.message}`);
-			let t = {
+			});
+			const buffer = Buffer.from(response.audioContent || Buffer.alloc(0));
+			if (buffer.length > 0) {
+				audioCache.set(cacheKey, buffer);
+				return buffer;
+			}
+			throw new Error("Empty audio content");
+		} catch (googleError) {
+			console.warn(`[play-ipa] Google TTS failure: ${googleError.message}`);
+			const voiceMap = {
 				"en-us": "en-us",
 				"en-gb": "en-gb",
-				de: "de",
-				nl: "nl",
-				es: "es",
-				pt: "pt",
-				fi: "fi",
-				sv: "sv"
-			}, n = "en-gb", a = r.toLowerCase();
-			a.includes("german") ? n = t.de : a.includes("dutch") ? n = t.nl : a.includes("spanish") ? n = t.es : a.includes("portuguese") ? n = t.pt : a.includes("finnish") ? n = t.fi : a.includes("swedish") ? n = t.sv : a.includes("english") && a.includes("north american") && (n = t["en-us"]);
-			let s = l ? `[[${u}]]` : u, c = Math.round(150 * o);
-			return new Promise((e, t) => {
-				let r = i("espeak-ng", [
+				"de": "de",
+				"nl": "nl",
+				"es": "es",
+				"pt": "pt",
+				"fi": "fi",
+				"sv": "sv"
+			};
+			let chosenVoice = "en-gb";
+			const l = validLang.toLowerCase();
+			if (l.includes("german")) chosenVoice = voiceMap["de"];
+			else if (l.includes("dutch")) chosenVoice = voiceMap["nl"];
+			else if (l.includes("spanish")) chosenVoice = voiceMap["es"];
+			else if (l.includes("portuguese")) chosenVoice = voiceMap["pt"];
+			else if (l.includes("finnish")) chosenVoice = voiceMap["fi"];
+			else if (l.includes("swedish")) chosenVoice = voiceMap["sv"];
+			else if (l.includes("english") && l.includes("north american")) chosenVoice = voiceMap["en-us"];
+			const ipaInput = finalIsIpa ? `[[${cleanText}]]` : cleanText;
+			const espeakSpeed = Math.round(150 * speakingRate);
+			return new Promise((resolve, reject) => {
+				const espeak = spawn("espeak-ng", [
 					"-v",
-					n,
+					chosenVoice,
 					"-s",
-					String(c),
+					String(espeakSpeed),
 					"--stdout",
-					s
-				]), a = Buffer.alloc(0);
-				r.stdout.on("data", (e) => a = Buffer.concat([a, e])), r.on("close", (n) => {
-					n === 0 ? (C.set(d, a), e(a)) : t(/* @__PURE__ */ Error("espeak-ng failed"));
-				}), r.on("error", (e) => t(/* @__PURE__ */ Error("Failed to start espeak-ng")));
+					ipaInput
+				]);
+				let audioData = Buffer.alloc(0);
+				espeak.stdout.on("data", (data) => audioData = Buffer.concat([audioData, data]));
+				espeak.on("close", (code) => {
+					if (code === 0) {
+						audioCache.set(cacheKey, audioData);
+						resolve(audioData);
+					} else reject(/* @__PURE__ */ new Error("espeak-ng failed"));
+				});
+				espeak.on("error", (err) => reject(/* @__PURE__ */ new Error("Failed to start espeak-ng")));
 			});
 		}
-	} catch (e) {
-		throw Error(e?.message || "Failed to play audio");
+	} catch (error) {
+		throw new Error(error?.message || "Failed to play audio");
 	}
-}), n.handle("evaluate-audio", async (e, { audioBlob: t, language: n, expectedText: r }) => {
+});
+ipcMain.handle("evaluate-audio", async (event, { audioBlob, language, expectedText }) => {
 	try {
-		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
-		if (!E.check("evaluate-audio")) throw Error("Rate limit exceeded");
-		if (!(t instanceof Uint8Array)) throw Error("Invalid audio data");
-		let i = O(n), a = Buffer.from(t), o = {
-			es: "es-US",
-			de: "de-DE",
-			pt: "pt-BR",
-			nl: "nl-NL",
-			sv: "sv-SE",
-			fi: "fi-FI"
-		}, s = "en-US", c = i.toLowerCase();
-		for (let [e, t] of Object.entries(o)) if (c.includes(e)) {
-			s = t;
+		if (!(event.senderFrame?.url || event.sender?.getURL?.() || "").startsWith("file://")) throw new Error("Unauthorized origin");
+		if (!speechRateLimiter.check("evaluate-audio")) throw new Error("Rate limit exceeded");
+		if (!(audioBlob instanceof Uint8Array)) throw new Error("Invalid audio data");
+		const validLang = validateLanguage(language);
+		const audioBytes = Buffer.from(audioBlob);
+		const languageCodeMap = {
+			"es": "es-US",
+			"de": "de-DE",
+			"pt": "pt-BR",
+			"nl": "nl-NL",
+			"sv": "sv-SE",
+			"fi": "fi-FI"
+		};
+		let languageCode = "en-US";
+		const l = validLang.toLowerCase();
+		for (const [key, code] of Object.entries(languageCodeMap)) if (l.includes(key)) {
+			languageCode = code;
 			break;
 		}
-		if (!_) throw Error("Speech client not initialized");
-		let [u] = await _.recognize({
-			audio: { content: a },
+		if (!speechClient) throw new Error("Speech client not initialized");
+		const [response] = await speechClient.recognize({
+			audio: { content: audioBytes },
 			config: {
-				encoding: l.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+				encoding: protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.WEBM_OPUS,
 				sampleRateHertz: 48e3,
-				languageCode: s
+				languageCode
 			}
-		}), d = u.results?.map((e) => e.alternatives?.[0].transcript).join("\n") || "[No speech]", f = j(), p = `User practiced "${r}" in ${i}. Recognized: "${d}". Give 1-2 sentences of phonetic advice.`;
+		});
+		const transcription = response.results?.map((r) => r.alternatives?.[0].transcript).join("\n") || "[No speech]";
+		const modelInstance = getModel();
+		const prompt = `User practiced "${expectedText}" in ${validLang}. Recognized: "${transcription}". Give 1-2 sentences of phonetic advice.`;
 		return {
-			transcription: d,
-			feedback: (await f.generateContent(p)).response.text()
+			transcription,
+			feedback: (await modelInstance.generateContent(prompt)).response.text()
 		};
-	} catch {
+	} catch (error) {
 		return {
 			transcription: "Error",
 			feedback: "Evaluation failed"
 		};
 	}
-}), n.handle("save-cards", async (e, t) => {
+});
+ipcMain.handle("save-cards", async (event, cards) => {
 	try {
-		if (!(e.senderFrame?.url || e.sender?.getURL?.() || "").startsWith("file://")) throw Error("Unauthorized origin");
-		if (!Array.isArray(t)) throw Error("Cards must be an array");
-		return new Promise((e, n) => {
-			let r = h;
-			if (!r) throw Error("DB not initialized");
-			r.serialize(() => {
-				let n = 0;
-				t.forEach((e) => {
-					r.run("INSERT OR REPLACE INTO cards \n            (language, symbol, type, voicing, place, manner, height, backness, roundedness, description, \n             example_word, example_translation, example_ipa, example_word2, example_translation2, example_ipa2, \n             example_word3, example_translation3, example_ipa3, example_sentence, example_sentence2, example_sentence3) \n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-						e.language,
-						e.symbol,
-						e.type,
-						e.voicing,
-						e.place,
-						e.manner,
-						e.height,
-						e.backness,
-						e.roundedness,
-						e.description,
-						e.example_word,
-						e.example_translation,
-						e.example_ipa,
-						e.example_word2,
-						e.example_translation2,
-						e.example_ipa2,
-						e.example_word3,
-						e.example_translation3,
-						e.example_ipa3,
-						e.example_sentence,
-						e.example_sentence2,
-						e.example_sentence3
-					], (e) => {
-						e || n++;
+		if (!(event.senderFrame?.url || event.sender?.getURL?.() || "").startsWith("file://")) throw new Error("Unauthorized origin");
+		if (!Array.isArray(cards)) throw new Error("Cards must be an array");
+		return new Promise((resolve, reject) => {
+			const database = db;
+			if (!database) throw new Error("DB not initialized");
+			database.serialize(() => {
+				let saved = 0;
+				cards.forEach((card) => {
+					database.run(`INSERT OR REPLACE INTO cards 
+            (language, symbol, type, voicing, place, manner, height, backness, roundedness, description, 
+             example_word, example_translation, example_ipa, example_word2, example_translation2, example_ipa2, 
+             example_word3, example_translation3, example_ipa3, example_sentence, example_sentence2, example_sentence3) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+						card.language,
+						card.symbol,
+						card.type,
+						card.voicing,
+						card.place,
+						card.manner,
+						card.height,
+						card.backness,
+						card.roundedness,
+						card.description,
+						card.example_word,
+						card.example_translation,
+						card.example_ipa,
+						card.example_word2,
+						card.example_translation2,
+						card.example_ipa2,
+						card.example_word3,
+						card.example_translation3,
+						card.example_ipa3,
+						card.example_sentence,
+						card.example_sentence2,
+						card.example_sentence3
+					], (err) => {
+						if (!err) saved++;
 					});
-				}), setTimeout(() => {
-					S.clear(), e({ saved: n });
+				});
+				setTimeout(() => {
+					cardCache.clear();
+					resolve({ saved });
 				}, 500);
 			});
 		});
-	} catch {
-		throw Error("Save failed");
+	} catch (error) {
+		throw new Error("Save failed");
 	}
 });
 //#endregion
