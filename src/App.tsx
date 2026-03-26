@@ -45,43 +45,46 @@ const LANGUAGES = [
 
 export default function App() {
   const [language, setLanguage] = useState(LANGUAGES[0]);
-  
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const theme = params.get('theme');
-    if (theme) {
-      document.documentElement.className = `theme-${theme}`;
-    }
-  }, []);
   const [cards, setCards] = useState<Card[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showFront, setShowFront] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
-  const [feedback, setFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ transcription: string, feedback: string, details?: any } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [speakingRate, setSpeakingRate] = useState(1.0);
   const [practiceText, setPracticeText] = useState<string | null>(null);
-  const [practiceFeedback, setPracticeFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
+  const [practiceFeedback, setPracticeFeedback] = useState<{ transcription: string, feedback: string, details?: any } | null>(null);
   const [isAudioError, setIsAudioError] = useState(false);
   const [fontSettings, setFontSettings] = useState<Record<string, { family: string, size: number }>>(() => {
-    const saved = localStorage.getItem('fonetik_fonts');
+    // @ts-ignore
+    const saved = globalThis.localStorage?.getItem('fonetik_fonts');
     return saved ? JSON.parse(saved) : {};
   });
   const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
 
+  const currentCard = useMemo(() => cards[currentIndex], [cards, currentIndex]);
   const currentFont = useMemo(() => fontSettings[language] || { family: 'serif', size: 10 }, [fontSettings, language]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
+    const params = new URLSearchParams(globalThis.location?.search);
+    const theme = params.get('theme');
+    if (theme) {
+      document.documentElement.className = `theme-${theme}`;
+    }
+  }, []);
+
+  useEffect(() => {
     loadCards();
   }, [language]);
 
   useEffect(() => {
-    localStorage.setItem('fonetik_fonts', JSON.stringify(fontSettings));
+    // @ts-ignore
+    globalThis.localStorage?.setItem('fonetik_fonts', JSON.stringify(fontSettings));
   }, [fontSettings]);
 
   const updateFontFamily = (family: string) => {
@@ -98,9 +101,9 @@ export default function App() {
     try {
       let data;
       // @ts-ignore
-      if (window.electronAPI) {
+      if (globalThis.electronAPI) {
         // @ts-ignore
-        data = await window.electronAPI.getCards(language);
+        data = await globalThis.electronAPI.getCards(language);
       } else {
         const resp = await fetch(`http://localhost:8004/cards/${encodeURIComponent(language)}`);
         data = await resp.json();
@@ -125,9 +128,9 @@ export default function App() {
       if (!text) return;
       let audioBuffer;
       // @ts-ignore
-      if (window.electronAPI) {
+      if (globalThis.electronAPI) {
         // @ts-ignore
-        audioBuffer = await window.electronAPI.playIpa(text, language, speakingRate, isIpa);
+        audioBuffer = await globalThis.electronAPI.playIpa(text, language, speakingRate, isIpa);
       } else {
         const resp = await fetch('http://localhost:8004/play-ipa', {
           method: 'POST',
@@ -149,7 +152,6 @@ export default function App() {
       setActiveAudioUrl(url);
       
       const audio = new Audio(url);
-      audio.onended = () => {}; // We keep it for the waveform
       await audio.play();
     } catch (err: any) {
       console.error("playIPA error:", err);
@@ -187,14 +189,15 @@ export default function App() {
           setRecordingUrl(recUrl);
 
           const textToEvaluate = practiceText || (currentCard ? currentCard.symbol : '');
+          const isRequestingIpa = !!(practiceText ? false : (currentCard ? true : false));
 
           let result;
           // @ts-ignore
-          if (window.electronAPI) {
+          if (globalThis.electronAPI) {
             // @ts-ignore
-            result = await window.electronAPI.evaluateAudio(blob, language, textToEvaluate);
+            result = await globalThis.electronAPI.evaluateAudio(blob, language, textToEvaluate, isRequestingIpa);
           } else {
-            // Web fallback using Sidecar
+            // Web fallback logic
             const reader = new FileReader();
             reader.readAsDataURL(blob);
             await new Promise((resolve) => { reader.onloadend = resolve; });
@@ -203,7 +206,7 @@ export default function App() {
             const resp = await fetch('http://localhost:8004/evaluate-audio', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ audioBlob: base64data, language, expectedText: textToEvaluate })
+              body: JSON.stringify({ audioBlob: base64data, language, expectedText: textToEvaluate, isIpa: isRequestingIpa })
             });
             result = await resp.json();
           }
@@ -214,13 +217,9 @@ export default function App() {
             setFeedback(result);
           }
         } catch (err: any) {
-          console.error("Audio evaluation error:", err);
-          const errorMsg = {
-            transcription: 'Error',
-            feedback: err?.message || 'Failed to evaluate pronunciation.'
-          };
-          if (practiceText) setPracticeFeedback(errorMsg);
-          else setFeedback(errorMsg);
+          console.error("Evaluation failed", err);
+          const errorMsg = { transcription: 'Error', feedback: err?.message || 'Failed' };
+          if (practiceText) setPracticeFeedback(errorMsg); else setFeedback(errorMsg);
         } finally {
           setIsRecording(false);
           setIsLoading(false);
@@ -231,29 +230,63 @@ export default function App() {
 
       mr.start();
       setIsRecording(true);
-      setTimeout(() => {
-        if (mr.state === 'recording') mr.stop();
-      }, 4000);
+      setTimeout(() => { if (mr.state === 'recording') mr.stop(); }, 4000);
     } catch (err: any) {
       console.error("Recording failed", err);
-      setFeedback({
-        transcription: 'Error',
-        feedback: err?.message || 'Microphone access denied or unavailable.'
-      });
+      setFeedback({ transcription: 'Error', feedback: err?.message || 'Mic denied' });
       setIsRecording(false);
     }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-    }
+    if (mediaRecorderRef.current && isRecording) mediaRecorderRef.current.stop();
   };
 
-  const handlePracticeSentence = (sentence: string) => {
-    setPracticeText(sentence);
+  const handlePracticeSentence = (text: string) => {
+    setPracticeText(text);
     setPracticeFeedback(null);
     startRecording();
+  };
+
+  const EvaluationDetails = ({ details }: { details: any }) => {
+    if (!details) return null;
+    const { score, phonemes, prosody } = details;
+    const scoreClass = score > 80 ? 'high' : score > 50 ? 'mid' : 'low';
+
+    return (
+      <div className="evaluation-details">
+        <div className="score-header">
+          <span className="tag manner">Phonetic Score</span>
+          <div className={`score-badge ${scoreClass}`}>{score}%</div>
+        </div>
+        <div className="phonemes-grid">
+          {phonemes?.map((p: any, i: number) => (
+            <div key={i} className="phoneme-score-card" title={p.f}>
+              <span className="phoneme-symbol">{p.p}</span>
+              <span className="phoneme-percent" style={{ color: p.s > 80 ? '#10b981' : p.s > 50 ? '#f59e0b' : '#ef4444' }}>
+                {p.s}%
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="prosody-section">
+          <span className="tag manner">Prosody Analysis</span>
+          {[
+            { label: 'Stress', val: prosody?.stress },
+            { label: 'Intonation', val: prosody?.intonation },
+            { label: 'Rhythm', val: prosody?.rhythm }
+          ].map((row, i) => (
+            <div key={i} className="prosody-row">
+              <span className="prosody-label">{row.label}</span>
+              <div className="prosody-bar-bg">
+                <div className="prosody-bar-fill" style={{ width: `${row.val}%` }} />
+              </div>
+              <span className="mini-score">{row.val}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const shuffleCards = () => {
@@ -264,8 +297,6 @@ export default function App() {
     setFeedback(null);
   };
 
-  const currentCard = cards[currentIndex];
-
   return (
     <div className="app-container">
       <header className="drag-region">
@@ -274,176 +305,102 @@ export default function App() {
           <Layers size={28} className="logo-icon" />
         </div>
         <div className="header-actions">
-          <button className="shuffle-btn" title="Shuffle Deck" onClick={shuffleCards}>
-            <RefreshCw size={20} />
-          </button>
+          <button className="shuffle-btn" title="Shuffle" onClick={shuffleCards}><RefreshCw size={20} /></button>
           <select value={language} onChange={(e) => setLanguage(e.target.value)} className="lang-select">
             {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
-          
           <div className="settings-panel">
-            <div className="setting-group" title="Font Family">
+            <div className="setting-group" title="Font">
               <Type size={16} />
-              <select 
-                value={currentFont.family} 
-                onChange={(e) => updateFontFamily(e.target.value)}
-                className="font-select"
-              >
-                <option value="serif">Serif (IPA Standard)</option>
-                <option value="sans-serif">Sans-Serif</option>
-                <option value="monospace">Monospace</option>
+              <select value={currentFont.family} onChange={(e) => updateFontFamily(e.target.value)} className="font-select">
+                <option value="serif">Serif (IPA)</option>
                 <option value="'Inter', sans-serif">Inter</option>
                 <option value="'Outfit', sans-serif">Outfit</option>
                 <option value="'Roboto', sans-serif">Roboto</option>
               </select>
             </div>
-            <div className="setting-group" title="Font Size">
+            <div className="setting-group" title="Size">
               <Maximize2 size={16} />
-              <input 
-                type="number" 
-                value={currentFont.size} 
-                onChange={(e) => updateFontSize(parseFloat(e.target.value))}
-                className="size-input"
-                min="1" max="20" step="0.5"
-              />
-              <span style={{ fontSize: '0.7rem' }}>rem</span>
+              <input type="number" value={currentFont.size} onChange={(e) => updateFontSize(Number.parseFloat(e.target.value))} className="size-input" min="1" max="20" step="0.5" />
             </div>
           </div>
-
           <div className="speed-control">
             <span className="speed-label">Speed: {speakingRate}x</span>
-            <input
-              type="range"
-              min="0.5"
-              max="1.0"
-              step="0.1"
-              value={speakingRate}
-              onChange={(e) => setSpeakingRate(parseFloat(e.target.value))}
-              className="speed-slider"
-            />
+            <input type="range" min="0.5" max="1.0" step="0.1" value={speakingRate} onChange={(e) => setSpeakingRate(Number.parseFloat(e.target.value))} className="speed-slider" />
           </div>
-          <button className="close-btn" onClick={() => window.close()}>×</button>
+          <button className="close-btn" onClick={() => globalThis.close()}>×</button>
         </div>
       </header>
-
       <main>
         {isLoading ? (
-          <div className="loading">
-            <RefreshCw size={48} className="animate-spin" />
-            <p>Loading exhaustive IPA data...</p>
-          </div>
+          <div className="loading"><RefreshCw size={48} className="animate-spin" /><p>Loading...</p></div>
         ) : error ? (
-          <div className="error-state">
-            <p className="error-msg">{error}</p>
-            <button className="retry-btn" onClick={loadCards}>
-              <RefreshCw size={20} /> Retry
-            </button>
-          </div>
+          <div className="error-state"><p className="error-msg">{error}</p><button className="retry-btn" onClick={loadCards}><RefreshCw size={20} /> Retry</button></div>
         ) : currentCard ? (
           <div className="card-scene">
-            {isAudioError && (
-              <div className="audio-error-banner">
-                ⚠️ Audio generation failed. Falling back to local synthesis...
-              </div>
-            )}
+            {isAudioError && <div className="audio-error-banner">⚠️ Audio failed. Falling back...</div>}
             <div className={`card ${showFront ? '' : 'is-flipped'}`} onClick={() => setShowFront(!showFront)}>
-
-              {/* Front of Card */}
               <div className="card-face card-front">
                 <div className="symbol-display">
-                  <span className="ipa-symbol" style={{ fontFamily: currentFont.family, fontSize: `${currentFont.size}rem` }}>
-                    {currentCard.symbol}
-                  </span>
-
+                  <span className="ipa-symbol" style={{ fontFamily: currentFont.family, fontSize: `${currentFont.size}rem` }}>{currentCard.symbol}</span>
                   <div className="speaker-and-tags">
-                    <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol, true); }}>
-                      <Volume2 size={40} />
-                    </button>
-
+                    <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol, true); }}><Volume2 size={40} /></button>
                     <div className="classification-tags-vertical">
                       {currentCard.type === 'consonant' ? (
                         <>
-                          {currentCard.voicing && <span className="tag voicing">{currentCard.voicing}</span>}
-                          {currentCard.place && <span className="tag place">{currentCard.place}</span>}
-                          {currentCard.manner && <span className="tag manner">{currentCard.manner}</span>}
+                          <span className="tag voicing">{currentCard.voicing}</span>
+                          <span className="tag place">{currentCard.place}</span>
+                          <span className="tag manner">{currentCard.manner}</span>
                         </>
                       ) : (
                         <>
-                          {currentCard.height && <span className="tag height">{currentCard.height}</span>}
-                          {currentCard.backness && <span className="tag backness">{currentCard.backness}</span>}
-                          {currentCard.roundedness && <span className="tag roundedness">{currentCard.roundedness}</span>}
+                          <span className="tag height">{currentCard.height}</span>
+                          <span className="tag backness">{currentCard.backness}</span>
+                          <span className="tag roundedness">{currentCard.roundedness}</span>
                         </>
                       )}
                     </div>
                   </div>
                 </div>
-                <div className="hint-text">Click to flip for examples</div>
+                <div className="hint-text">Click to flip</div>
               </div>
-
-              {/* Back of Card */}
               <div className="card-face card-back">
                 <div className="back-content">
                   <div className="examples-container">
                     {[
-                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa, sentence: currentCard.example_sentence, sentence_ipa: currentCard.example_sentence_ipa },
-                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2, sentence: currentCard.example_sentence2, sentence_ipa: currentCard.example_sentence_ipa2 },
-                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3, sentence: currentCard.example_sentence3, sentence_ipa: currentCard.example_sentence_ipa3 }
+                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa, sentence: currentCard.example_sentence, s_ipa: currentCard.example_sentence_ipa },
+                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2, sentence: currentCard.example_sentence2, s_ipa: currentCard.example_sentence_ipa2 },
+                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3, sentence: currentCard.example_sentence3, s_ipa: currentCard.example_sentence_ipa3 }
                     ].filter(ex => ex.word).map((ex, i) => (
                       <div key={i} className="example-row-container">
                         <div className="example-row">
-                          <div className="example-audio-group">
-                            <button className="audio-btn-mini" title="Play Word (Orthography)" onClick={(e) => { e.stopPropagation(); playIPA(ex.word!, false); }}>
-                              <Volume2 size={12} />
-                            </button>
-                            {ex.ipa && (
-                              <button className="audio-btn-mini ipa-audio" title="Play IPA" onClick={(e) => { e.stopPropagation(); playIPA(ex.ipa!, true); }}>
-                                <AudioLines size={12} />
-                              </button>
-                            )}
-                          </div>
-                          <button
-                            className={`audio-btn-mini practice-btn ${isRecording && practiceText === ex.word ? 'recording' : ''}`}
-                            title="Practice Word"
-                            onClick={(e) => { e.stopPropagation(); isRecording ? stopRecording() : handlePracticeSentence(ex.word!); }}
-                          >
-                            <Mic size={14} />
-                          </button>
-                          <div className="example-text-group">
-                            <span className="word">{ex.word}</span>
-                            <span className="ipa">{ex.ipa}</span>
-                          </div>
+                          <button className="audio-btn-mini" onClick={(e) => { e.stopPropagation(); playIPA(ex.word!, false); }}><Volume2 size={12} /></button>
+                          {ex.ipa && <button className="audio-btn-mini ipa-audio" onClick={(e) => { e.stopPropagation(); playIPA(ex.ipa!, true); }}><AudioLines size={12} /></button>}
+                          <button className={`audio-btn-mini practice-btn ${isRecording && practiceText === ex.word ? 'recording' : ''}`} onClick={(e) => { e.stopPropagation(); isRecording ? stopRecording() : handlePracticeSentence(ex.word!); }}><Mic size={14} /></button>
+                          <div className="example-text-group"><span className="word">{ex.word}</span><span className="ipa">{ex.ipa}</span></div>
                           <span className="translation">"{ex.trans}"</span>
                         </div>
+                        {practiceFeedback && practiceText === ex.word && (
+                          <div className="practice-mini-feedback">
+                            <span className="feedback-score">{practiceFeedback.details?.score ? `${practiceFeedback.details.score}%` : practiceFeedback.feedback}</span>
+                            <span className="feedback-text">Heard: {practiceFeedback.transcription}</span>
+                            <EvaluationDetails details={practiceFeedback.details} />
+                          </div>
+                        )}
                         {ex.sentence && (
                           <div className="sentence-row-container">
                             <div className="sentence-row">
-                              <button className="audio-btn-mini sentence-audio" title="Play Sentence" onClick={(e) => { e.stopPropagation(); playIPA(ex.sentence!, false); }}>
-                                <Volume2 size={12} />
-                              </button>
-                              <button
-                                className={`audio-btn-mini practice-btn ${isRecording && practiceText === ex.sentence ? 'recording' : ''}`}
-                                title="Practice Sentence"
-                                onClick={(e) => { e.stopPropagation(); isRecording ? stopRecording() : handlePracticeSentence(ex.sentence!); }}
-                              >
-                                <Mic size={12} />
-                              </button>
-                              <span className="sentence-label">Sentence:</span>
+                              <button className="audio-btn-mini sentence-audio" onClick={(e) => { e.stopPropagation(); playIPA(ex.sentence!, false); }}><Volume2 size={12} /></button>
+                              <button className={`audio-btn-mini practice-btn ${isRecording && practiceText === ex.sentence ? 'recording' : ''}`} onClick={(e) => { e.stopPropagation(); isRecording ? stopRecording() : handlePracticeSentence(ex.sentence!); }}><Mic size={12} /></button>
                               <span className="sentence">{ex.sentence}</span>
-                              {ex.sentence_ipa && <span className="sentence-ipa" style={{display: 'block', fontSize: '0.85rem', color: 'var(--accent)', marginTop: '2px'}}>{ex.sentence_ipa}</span>}
+                              {ex.s_ipa && <span className="sentence-ipa">{ex.s_ipa}</span>}
                             </div>
-                            {activeAudioUrl && practiceText === ex.sentence && (
-                              <Waveform audioUrl={activeAudioUrl} speed={speakingRate} />
-                            )}
+                            {activeAudioUrl && practiceText === ex.sentence && <Waveform audioUrl={activeAudioUrl} speed={speakingRate} />}
                             {practiceFeedback && practiceText === ex.sentence && (
                               <div className="practice-mini-feedback">
-                                <span className="feedback-score">{practiceFeedback.feedback}</span>
-                                <span className="feedback-text">Detected: {practiceFeedback.transcription}</span>
-                              </div>
-                            )}
-                            {practiceFeedback && practiceText === ex.word && (
-                              <div className="practice-mini-feedback">
-                                <span className="feedback-score">{practiceFeedback.feedback}</span>
-                                <span className="feedback-text">Detected: {practiceFeedback.transcription}</span>
+                                <span className="feedback-score">{practiceFeedback.details?.score ? `${practiceFeedback.details.score}%` : practiceFeedback.feedback}</span>
+                                <span className="feedback-text">Heard: {practiceFeedback.transcription}</span>
+                                <EvaluationDetails details={practiceFeedback.details} />
                               </div>
                             )}
                           </div>
@@ -451,41 +408,30 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-
                   <div className="voice-evaluation">
-                    <button
-                      className={`mic-btn ${isRecording ? 'recording' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); startRecording(); }}
-                    >
-                      {isRecording ? <MicOff /> : <Mic />}
-                      <span>{isRecording ? 'Listening...' : 'Practice Sound'}</span>
+                    <button className={`mic-btn ${isRecording && !practiceText ? 'recording' : ''}`} onClick={(e) => { e.stopPropagation(); startRecording(); }}>
+                      {isRecording && !practiceText ? <MicOff /> : <Mic />}
+                      <span>{isRecording && !practiceText ? 'Listening...' : 'Practice Sound'}</span>
                     </button>
                     {feedback && (
                       <div className="feedback-layer">
-                        <div className="heard">Heard: "{feedback.transcription}"</div>
-                        <div className="coach-advice">{feedback.feedback}</div>
-                        {recordingUrl && (
-                          <div className="user-recording">
-                            <span className="tag manner" style={{marginBottom: '0.5rem', display: 'inline-block'}}>Your Recording</span>
-                            <Waveform audioUrl={recordingUrl} speed={speakingRate} />
-                          </div>
-                        )}
+                         <div className="heard">Heard: "{feedback.transcription}"</div>
+                         <div className="coach-advice">{feedback.feedback}</div>
+                         <EvaluationDetails details={feedback.details} />
+                         {recordingUrl && <div className="user-recording"><Waveform audioUrl={recordingUrl} speed={speakingRate} /></div>}
                       </div>
                     )}
                   </div>
                 </div>
               </div>
             </div>
-
             <div className="navigation">
               <button onClick={(e) => { e.stopPropagation(); prevCard(); }} className="nav-btn"><ChevronLeft size={40} /></button>
               <span className="counter">{currentIndex + 1} / {cards.length}</span>
               <button onClick={(e) => { e.stopPropagation(); nextCard(); }} className="nav-btn"><ChevronRight size={40} /></button>
             </div>
           </div>
-        ) : (
-          <div className="empty-state">No cards available.</div>
-        )}
+        ) : <div className="empty-state">No cards available.</div>}
       </main>
     </div>
   );

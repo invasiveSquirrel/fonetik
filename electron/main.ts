@@ -1,10 +1,9 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
-import path from 'path';
-import { spawn } from 'child_process';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 import sqlite3 from 'sqlite3';
-import * as fs from 'fs';
-import { promises as fsPromises } from 'fs';
-import { fileURLToPath } from 'url';
+import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { SpeechClient, protos } from '@google-cloud/speech';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -159,7 +158,7 @@ const speechRateLimiter = new RateLimiter(15);
 // SECURITY & VALIDATION
 // ============================================
 
-const VALID_LANGUAGES = [
+const VALID_LANGUAGES = new Set([
   "English (North American)", "English (Received Pronunciation)", "English (Australian)",
   "English (Scottish)", "Dutch (Netherlands)", "Dutch (Flemish)",
   "German (Northern)", "German (Austrian)", "German (Swiss)", "Spanish (Spain)",
@@ -167,10 +166,10 @@ const VALID_LANGUAGES = [
   "Spanish (Cuban)", "Portuguese (Brazilian)", "Portuguese (European)",
   "Swedish (Stockholm)", "Swedish (Skåne)", "Swedish (Finland)",
   "Finnish (Helsinki)", "Scottish Gaelic"
-];
+]);
 
 function validateLanguage(lang: unknown): string {
-  if (typeof lang !== 'string' || !VALID_LANGUAGES.includes(lang)) {
+  if (typeof lang !== 'string' || !VALID_LANGUAGES.has(lang)) {
     throw new Error('Invalid language');
   }
   return lang;
@@ -178,11 +177,11 @@ function validateLanguage(lang: unknown): string {
 
 function escapeXml(str: string): string {
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');
 }
 
 function getAPIKey(): string {
@@ -191,12 +190,10 @@ function getAPIKey(): string {
   return key;
 }
 
-function getModel() {
-  if (!model) {
-    genAI = new GoogleGenerativeAI(getAPIKey());
-    model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-  }
-  return model;
+function getModel(modelName: string = "gemini-2.0-pro-exp-02-05") {
+  const key = getAPIKey();
+  const genAIInstance = new GoogleGenerativeAI(key);
+  return genAIInstance.getGenerativeModel({ model: modelName });
 }
 
 function createWindow() {
@@ -247,29 +244,69 @@ ipcMain.handle('get-cards', async (event, language: unknown) => {
 });
 
 // ============================================
-// IPC HANDLERS - PLAY IPA
+// TTS HELPERS
 // ============================================
+
+function getVoiceConfig(language: string, text: string) {
+  const highQualityVoiceMap: any = {
+    "English (North American)": { languageCode: "en-US", name: "en-US-Chirp3-HD-Dione" },
+    "English (Received Pronunciation)": { languageCode: "en-GB", name: "en-GB-Chirp3-HD-Calliope" },
+    "English (Australian)": { languageCode: "en-AU", name: "en-AU-Neural2-A" },
+    "English (Scottish)": { languageCode: "en-GB", name: "en-GB-Neural2-B" },
+    "Dutch (Netherlands)": { languageCode: "nl-NL", name: "nl-NL-Chirp3-HD-Despina" },
+    "Dutch (Flemish)": { languageCode: "nl-BE", name: "nl-BE-Wavenet-A" },
+    "German (Northern)": { languageCode: "de-DE", name: "de-DE-Chirp3-HD-Leda" },
+    "German (Austrian)": { languageCode: "de-AT", name: "de-AT-Wavenet-A" },
+    "German (Swiss)": { languageCode: "de-CH", name: "de-CH-Wavenet-A" },
+    "Spanish (Spain)": { languageCode: "es-ES", name: "es-ES-Chirp3-HD-Callirrhoe" },
+    "Spanish (Mexican)": { languageCode: "es-MX", name: "es-MX-Chirp3-HD-Dione" },
+    "Spanish (Argentinian)": { languageCode: "es-AR", name: "es-AR-Neural2-A" },
+    "Spanish (Colombian)": { languageCode: "es-CO", name: "es-CO-Neural2-A" },
+    "Spanish (Chilean)": { languageCode: "es-CL", name: "es-CL-Neural2-A" },
+    "Spanish (Cuban)": { languageCode: "es-US", name: "es-US-Chirp3-HD-Callirrhoe" },
+    "Portuguese (Brazilian)": { languageCode: "pt-BR", name: "pt-BR-Chirp3-HD-Dione" },
+    "Portuguese (European)": { languageCode: "pt-PT", name: "pt-PT-Wavenet-A" },
+    "Swedish (Stockholm)": { languageCode: "sv-SE", name: "sv-SE-Chirp3-HD-Laomedeia" },
+    "Swedish (Skåne)": { languageCode: "sv-SE", name: "sv-SE-Neural2-C" },
+    "Swedish (Finland)": { languageCode: "sv-SE", name: "sv-SE-Neural2-C" },
+    "Finnish (Helsinki)": { languageCode: "fi-FI", name: "fi-FI-Chirp3-HD-Despina" },
+    "Scottish Gaelic": { languageCode: "en-GB", name: "en-GB-Standard-A" }
+  };
+
+  let targetLang = language;
+  const dialectMatch = text.match(/\(([^)]+)\)/);
+  if (dialectMatch) {
+    const detectedDialect = dialectMatch[1].toLowerCase();
+    if (detectedDialect.includes("north american") || detectedDialect.includes("us")) targetLang = "English (North American)";
+    else if (detectedDialect.includes("received pronunciation") || detectedDialect.includes("rp") || detectedDialect.includes("british")) targetLang = "English (Received Pronunciation)";
+    else if (detectedDialect.includes("mexican")) targetLang = "Spanish (Mexican)";
+    else if (detectedDialect.includes("spain")) targetLang = "Spanish (Spain)";
+  }
+
+  return highQualityVoiceMap[targetLang] || highQualityVoiceMap[language] || { languageCode: "en-US", name: "en-US-Chirp3-HD-Dione" };
+}
+
+function generateSsml(text: string, langCode: string, isIpa: boolean): string {
+  const escaped = escapeXml(text);
+  return isIpa 
+    ? `<speak xml:lang="${langCode}"><phoneme alphabet="ipa" ph="${escaped}">${escaped}</phoneme></speak>`
+    : `<speak xml:lang="${langCode}">${escaped}</speak>`;
+}
 
 ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) => {
   const speakingRate = speed || 1.0;
-  console.log(`IPC play-ipa: text="${text}", lang="${language}", speed=${speakingRate}, isIpa=${isIpa}`);
-
   try {
     const url = event.senderFrame?.url || (event.sender as any)?.getURL?.() || '';
     if (!url.startsWith('file://')) throw new Error(`Unauthorized origin`);
     if (!ttsRateLimiter.check('play-ipa')) throw new Error('Rate limit exceeded');
     if (typeof text !== 'string' || text.length === 0 || text.length > 500) throw new Error('Invalid text');
+    
     const validLang = validateLanguage(language);
-
     const containsIpaDetected = /[ɑʋɛɪɔʊæøœʉɟʝɲŋʃʒθðɬɮɹɻɥɰʁˈˌ]/.test(text);
     const isIpaDetected = (text.startsWith('[') && text.endsWith(']')) || containsIpaDetected || validLang === "Scottish Gaelic";
     const finalIsIpa = isIpa !== undefined ? isIpa : isIpaDetected;
 
-    // Clean text for synthesis (strip outermost brackets)
     let cleanText = text.replace(/(^\[|\]$)/g, '').trim();
-
-    // Fourth Requirement: Pronounce consonants between two vowels (ah-X-ah)
-    // If it's a single phoneme/cluster (short length) and looks like a consonant
     if (finalIsIpa && cleanText.length <= 4 && !/[aeiouyɑɛɪɔʊæøœʉ]/.test(cleanText)) {
       cleanText = `a${cleanText}a`;
     }
@@ -278,57 +315,12 @@ ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) 
     const cached = audioCache.get(cacheKey);
     if (cached) return cached;
 
-    const highQualityVoiceMap: any = {
-      "English (North American)": { languageCode: "en-US", name: "en-US-Chirp3-HD-Dione" },
-      "English (Received Pronunciation)": { languageCode: "en-GB", name: "en-GB-Chirp3-HD-Calliope" },
-      "English (Australian)": { languageCode: "en-AU", name: "en-AU-Neural2-A" },
-      "English (Scottish)": { languageCode: "en-GB", name: "en-GB-Neural2-B" },
-      "Dutch (Netherlands)": { languageCode: "nl-NL", name: "nl-NL-Chirp3-HD-Despina" },
-      "Dutch (Flemish)": { languageCode: "nl-BE", name: "nl-BE-Wavenet-A" },
-      "German (Northern)": { languageCode: "de-DE", name: "de-DE-Chirp3-HD-Leda" },
-      "German (Austrian)": { languageCode: "de-AT", name: "de-AT-Wavenet-A" },
-      "German (Swiss)": { languageCode: "de-CH", name: "de-CH-Wavenet-A" },
-      "Spanish (Spain)": { languageCode: "es-ES", name: "es-ES-Chirp3-HD-Callirrhoe" },
-      "Spanish (Mexican)": { languageCode: "es-MX", name: "es-MX-Chirp3-HD-Dione" },
-      "Spanish (Argentinian)": { languageCode: "es-AR", name: "es-AR-Neural2-A" },
-      "Spanish (Colombian)": { languageCode: "es-CO", name: "es-CO-Neural2-A" },
-      "Spanish (Chilean)": { languageCode: "es-CL", name: "es-CL-Neural2-A" },
-      "Spanish (Cuban)": { languageCode: "es-US", name: "es-US-Chirp3-HD-Callirrhoe" },
-      "Portuguese (Brazilian)": { languageCode: "pt-BR", name: "pt-BR-Chirp3-HD-Dione" },
-      "Portuguese (European)": { languageCode: "pt-PT", name: "pt-PT-Wavenet-A" },
-      "Swedish (Stockholm)": { languageCode: "sv-SE", name: "sv-SE-Chirp3-HD-Laomedeia" },
-      "Swedish (Skåne)": { languageCode: "sv-SE", name: "sv-SE-Neural2-C" },
-      "Swedish (Finland)": { languageCode: "sv-SE", name: "sv-SE-Neural2-C" },
-      "Finnish (Helsinki)": { languageCode: "fi-FI", name: "fi-FI-Chirp3-HD-Despina" },
-      "Scottish Gaelic": { languageCode: "en-GB", name: "en-GB-Standard-A" }
-    };
-
-    // Second Requirement: Bundle dialects and pick high-quality Google voice for proper pronunciation
-    let targetLang = validLang;
-    const dialectMatch = text.match(/\(([^)]+)\)/);
-    if (dialectMatch) {
-      const detectedDialect = dialectMatch[1].toLowerCase();
-      if (detectedDialect.includes("north american") || detectedDialect.includes("us")) targetLang = "English (North American)";
-      else if (detectedDialect.includes("received pronunciation") || detectedDialect.includes("rp") || detectedDialect.includes("british")) targetLang = "English (Received Pronunciation)";
-      else if (detectedDialect.includes("mexican")) targetLang = "Spanish (Mexican)";
-      else if (detectedDialect.includes("spain")) targetLang = "Spanish (Spain)";
-      // Add more as needed
-    }
-
-    const selectedVoice = highQualityVoiceMap[targetLang] || highQualityVoiceMap[validLang] || { languageCode: "en-US", name: "en-US-Chirp3-HD-Dione" };
+    const selectedVoice = getVoiceConfig(validLang, text);
     const langCode = selectedVoice.languageCode || 'en-US';
 
     try {
       if (!ttsClient) throw new Error("TTS Client not initialized");
-      let ssml: string;
-      if (finalIsIpa) {
-        const escapedIpa = escapeXml(cleanText);
-        ssml = `<speak xml:lang="${langCode}"><phoneme alphabet="ipa" ph="${escapedIpa}">${escapedIpa}</phoneme></speak>`;
-      } else {
-        const escapedText = escapeXml(cleanText);
-        ssml = `<speak xml:lang="${langCode}">${escapedText}</speak>`;
-      }
-      console.log(`[play-ipa] TTS Request (${langCode}): ${ssml}`);
+      const ssml = generateSsml(cleanText, langCode, finalIsIpa);
       const [response] = await ttsClient.synthesizeSpeech({
         input: { ssml },
         voice: { languageCode: langCode, name: selectedVoice.name },
@@ -342,20 +334,16 @@ ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) 
       throw new Error("Empty audio content");
     } catch (googleError: any) {
       console.warn(`[play-ipa] Google TTS failure: ${googleError.message}`);
-      // Ifvoice not available, show IPA and provide best approximation note
-      if (googleError.message.includes('not found') || googleError.message.includes('404')) {
-        console.log(`[play-ipa] Voice for ${targetLang} unavailable. Using best approximation.`);
-      }
-      const voiceMap: any = { 'en-us': 'en-us', 'en-gb': 'en-gb', 'de': 'de', 'nl': 'nl', 'es': 'es', 'pt': 'pt', 'fi': 'fi', 'sv': 'sv' };
+      const fallbackVoiceMap: any = { 'en-us': 'en-us', 'en-gb': 'en-gb', 'de': 'de', 'nl': 'nl', 'es': 'es', 'pt': 'pt', 'fi': 'fi', 'sv': 'sv' };
       let chosenVoice = 'en-gb';
       const l = validLang.toLowerCase();
-      if (l.includes('german')) chosenVoice = voiceMap['de'];
-      else if (l.includes('dutch')) chosenVoice = voiceMap['nl'];
-      else if (l.includes('spanish')) chosenVoice = voiceMap['es'];
-      else if (l.includes('portuguese')) chosenVoice = voiceMap['pt'];
-      else if (l.includes('finnish')) chosenVoice = voiceMap['fi'];
-      else if (l.includes('swedish')) chosenVoice = voiceMap['sv'];
-      else if (l.includes('english') && l.includes('north american')) chosenVoice = voiceMap['en-us'];
+      if (l.includes('german')) chosenVoice = fallbackVoiceMap['de'] || 'de-DE';
+      else if (l.includes('dutch')) chosenVoice = fallbackVoiceMap['nl'] || 'nl-NL';
+      else if (l.includes('spanish')) chosenVoice = fallbackVoiceMap['es'] || 'es-ES';
+      else if (l.includes('portuguese')) chosenVoice = fallbackVoiceMap['pt'] || 'pt-PT';
+      else if (l.includes('finnish')) chosenVoice = fallbackVoiceMap['fi'] || 'fi-FI';
+      else if (l.includes('swedish')) chosenVoice = fallbackVoiceMap['sv'] || 'sv-SE';
+      else if (l.includes('english') && l.includes('north american')) chosenVoice = 'en-us';
 
       const ipaInput = finalIsIpa ? `[[${cleanText}]]` : cleanText;
       const espeakSpeed = Math.round(150 * speakingRate);
@@ -374,39 +362,85 @@ ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) 
 // IPC HANDLERS - EVALUATE AUDIO
 // ============================================
 
-ipcMain.handle('evaluate-audio', async (event, { audioBlob, language, expectedText }: any) => {
+ipcMain.handle('evaluate-audio', async (event, { audioBlob, language, expectedText, isIpa }: any) => {
   try {
     const url = event.senderFrame?.url || (event.sender as any)?.getURL?.() || '';
     if (!url.startsWith('file://')) throw new Error('Unauthorized origin');
     if (!speechRateLimiter.check('evaluate-audio')) throw new Error('Rate limit exceeded');
     if (!(audioBlob instanceof Uint8Array)) throw new Error('Invalid audio data');
     const validLang = validateLanguage(language);
-    const audioBytes = Buffer.from(audioBlob);
-    const languageCodeMap: any = { 'es': 'es-US', 'de': 'de-DE', 'pt': 'pt-BR', 'nl': 'nl-NL', 'sv': 'sv-SE', 'fi': 'fi-FI' };
-    let languageCode = 'en-US';
-    const l = validLang.toLowerCase();
-    for (const [key, code] of Object.entries(languageCodeMap)) { if (l.includes(key)) { languageCode = code as string; break; } }
-    if (!speechClient) throw new Error("Speech client not initialized");
-    const [response] = await speechClient.recognize({
-      audio: { content: audioBytes },
-      config: { encoding: protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.WEBM_OPUS, sampleRateHertz: 48000, languageCode },
-    });
-    const transcription = response.results?.map((r: any) => r.alternatives?.[0].transcript).join('\n') || "[No speech]";
-    const modelInstance = getModel();
+    const userAudioBytes = Buffer.from(audioBlob);
+
+    // Get Reference AI Audio if available in cache
+    // We try to find it by IPA or Text
+    const cacheKey = `${validLang}::1::${!!isIpa}::${expectedText}`;
+    const aiAudioBytes = audioCache.get(cacheKey);
+
+    const modelInstance = getModel("gemini-2.0-pro-exp-02-05"); // Use Pro Exp for high precision evaluation
+    
     const prompt = `
-      ACT AS AN EXPERT LINGUISTIC COACH. 
-      Student practiced: "${expectedText}" (Target Language: ${validLang}).
-      Speech-to-Text recognized: "${transcription}".
+      ACT AS AN EXPERT LINGUISTIC COACH.
+      Goal: Evaluate the student's pronunciation of "${expectedText}" in ${validLang}.
       
-      TASK: 
-      1. Provide a highly detailed phonetic comparison between the student's attempt and the ideal IPA for "${expectedText}".
-      2. Identify specific phonemes or allophones that were mispronounced or substituted.
-      3. Give 1-2 sentences of actionable articulatory advice (e.g. "Try raising the back of your tongue higher" or "Ensure the aspiration is stronger on the [p]").
-      4. Use IPA symbols in your feedback where possible.
+      Inputs:
+      1. Reference Audio: A perfect native-speaker (AI) pronunciation (if provided).
+      2. Student Audio: The student's attempt.
+      
+      TASK:
+      - Compare the student's audio against the reference audio and the target IPA.
+      - Perform forced alignment to identify which phonemes were hit or missed.
+      - Evaluate articulatory precision (vowel quality, consonant placement).
+      - Evaluate prosody (stress, rhythm, intonation).
+      
+      Return ONLY a JSON object:
+      {
+        "score": 0-100,
+        "phonemes": [
+          { "p": "symbol", "s": 0-100, "f": "brief phonetic feedback" }
+        ],
+        "prosody": { "stress": 0-100, "intonation": 0-100, "rhythm": 0-100 },
+        "advice": "1-2 sentences of professional articulatory coaching."
+      }
     `;
-    const result = await modelInstance.generateContent(prompt);
-    return { transcription, feedback: result.response.text() };
-  } catch (error: any) { return { transcription: "Error", feedback: "Evaluation failed" }; }
+
+    const parts: any[] = [{ text: prompt }];
+    
+    // Add User Audio
+    parts.push({
+      inlineData: {
+        data: userAudioBytes.toString('base64'),
+        mimeType: 'audio/webm'
+      }
+    });
+
+    // Add AI Reference Audio if we have it
+    if (aiAudioBytes) {
+      parts.push({
+        inlineData: {
+          data: aiAudioBytes.toString('base64'),
+          mimeType: 'audio/mp3'
+        }
+      });
+    }
+
+    const result = await modelInstance.generateContent({ contents: [{ role: 'user', parts }] });
+    const responseText = result.response.text();
+    const jsonMatch = responseText.match(/\{.*\}/s);
+    
+    if (jsonMatch) {
+      const evaluation = JSON.parse(jsonMatch[0]);
+      return { 
+        transcription: "Evaluated", 
+        feedback: evaluation.advice, 
+        details: evaluation 
+      };
+    }
+    
+    return { transcription: "Evaluated", feedback: responseText };
+  } catch (error: any) { 
+    console.error("Evaluation Error:", error);
+    return { transcription: "Error", feedback: "Evaluation failed: " + error.message }; 
+  }
 });
 
 // ============================================

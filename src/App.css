@@ -5,7 +5,7 @@
   --accent: #38bdf8;
   --accent-soft: rgba(56, 189, 248, 0.1);
   --text: #f8fafc;
-  --text-muted: #94a3b8;
+  --text-muted: #e2e8f0;
   --vowel: #10b981;
   --consonant: #f59e0b;
 }
@@ -16,7 +16,7 @@
   --accent: #8aadf4;
   --accent-soft: rgba(138, 173, 244, 0.1);
   --text: #cad3f5;
-  --text-muted: #939ab7;
+  --text-muted: #c6d0f5;
 }
 
 .theme-github {
@@ -226,10 +226,6 @@ main {
   padding: 2.5rem;
   display: flex;
   flex-direction: column;
-}
-
-/* SCROLLBAR SUPPORT */
-.card-face {
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--accent) var(--base);
@@ -762,4 +758,100 @@ main {
   100% {
     transform: scale(1);
   }
+}
+
+/* Professional Evaluation UI */
+.evaluation-details {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.score-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.score-badge {
+  padding: 0.5rem 1.2rem;
+  border-radius: 20px;
+  font-weight: 900;
+  font-size: 1.2rem;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.score-badge.high { background: #10b981; }
+.score-badge.mid { background: #f59e0b; }
+.score-badge.low { background: #ef4444; }
+
+.phonemes-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.phoneme-score-card {
+  background: var(--surface);
+  border: 1px solid var(--accent-soft);
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+
+.phoneme-symbol {
+  font-family: serif;
+  font-size: 1.4rem;
+  font-weight: 800;
+  margin-bottom: 0.25rem;
+}
+
+.phoneme-percent {
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.8;
+}
+
+.prosody-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.prosody-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.prosody-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  width: 80px;
+  color: var(--text-muted);
+}
+
+.prosody-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: var(--base);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.prosody-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.mini-score {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--accent);
 }

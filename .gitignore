@@ -31,3 +31,6 @@ discussions/
 !tsconfig.json
 .env*
 google-credentials.json
+*_api.txt
+.env
+google-credentials.json
