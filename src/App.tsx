@@ -41,6 +41,14 @@ const LANGUAGES = [
 
 export default function App() {
   const [language, setLanguage] = useState(LANGUAGES[0]);
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const theme = params.get('theme');
+    if (theme) {
+      document.documentElement.className = `theme-${theme}`;
+    }
+  }, []);
   const [cards, setCards] = useState<Card[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showFront, setShowFront] = useState(true);

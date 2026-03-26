@@ -24,3 +24,10 @@ dist-ssr
 *.sw?
 .directory
 db/
+history/
+discussions/
+*.json
+!package.json
+!tsconfig.json
+.env*
+google-credentials.json

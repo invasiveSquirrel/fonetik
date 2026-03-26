@@ -1,80 +1,29 @@
-# Fonetik: Master the Building Blocks of Language
+# Fonetik | IPA & Phonological Research
 
-Fonetik is a specialized tool for mastering the most difficult sounds in a new language. It uses the International Phonetic Alphabet (IPA) and high-fidelity audio to show you exactly how to pronounce tricky phonemes.
+Fonetik is a specialized tool for studying the phonology of world languages, focusing on International Phonetic Alphabet (IPA) transcriptions and dialect-aware pronunciation.
 
-## 🌍 Supported Languages & Dialects
-Fonetik includes specialized sound sets for:
-- **English:** North American, Received Pronunciation (UK), Australian, Scottish, and Cockney.
-- **Dutch:** Netherlands and Flemish.
-- **German:** Northern, Austrian, and Swiss.
-- **Spanish:** Spain, Mexican, Argentinian, Colombian, Chilean, and Cuban.
-- **Portuguese:** Brazilian and European.
-- **Swedish:** Stockholm, Skåne, and Finland-Swedish.
-- **Finnish**
-- **Scottish Gaelic** (Master tricky broad/slender and pre-aspiration sounds!)
+## Features
 
-## 🌟 What this app does
-- **Phonetic Mastery:** Learn the specific mouth movements for each sound.
-- **Visual & Auditory:** See the IPA symbol and hear it pronounced by a high-quality neural voice.
-- **Expert Data:** Includes 26 specialized cards for Scottish Gaelic phonetics.
+- **Massive IPA Database**: Pre-loaded with thousands of transcriptions for Swedish, Gaelic, German, and more.
+- **Audio Synthesis**: High-quality TTS that respects IPA transcriptions for precise learning.
+- **Dialect Support**: Switch between standard and regional pronunciations.
 
 ---
 
-## 🚀 How to Download and Install
-*You do NOT need to have GitHub installed to use this.*
+## Installation
 
-### Step 1: Download the Files
-1. Scroll to the top of this GitHub page.
-2. Look for the green button that says **"<> Code"** and click it.
-3. Click **"Download ZIP"** at the bottom of the little menu that appears.
-
-### Step 2: Extract (Unzip) the Folder
-Once the download is finished, you need to "unzip" the files before they will work:
-- **On Windows:** Right-click the downloaded file and select **"Extract All..."**.
-- **On Mac:** Simply double-click the downloaded file. A new, regular folder will appear automatically.
-- **On Linux:** Right-click the file and select **"Extract Here"**.
-
-### Step 3: Final Installation
-**For Windows:**
-1. Install [Node.js](https://nodejs.org) (LTS version).
-2. Open your new "extracted" folder.
-3. Type `cmd` in the top address bar and press Enter.
-4. Type `npm install` and press Enter. When finished, type `npm start` to run.
+### Setup
+1. Clone and Install:
+   ```bash
+   npm install
+   ```
+2. Start Dev Server:
+   ```bash
+   npm run dev
+   ```
 
 ---
 
-## 🔑 Setup: Your API Key & Voice
-This app uses AI to generate sounds and high-quality voices to read them.
-
-### 1. The "Brains" Key (For generating new sound cards)
-1. Go to [Google AI Studio](https://aistudio.google.com/) (it's free).
-2. Click **"Get API Key"**.
-3. **Where to put it:** Create a folder named `wordhord` in your main main User directory (Home).
-4. Create a text file inside that folder called `wordhord_api.txt` and paste your key inside.
-
-### 2. The "Voice" Credentials (For high-quality speech)
-To hear the neural voices, the app looks for a file named `google-credentials.json` in the `panglossia` folder (if you use both apps) or your system path. If you do not have this, the app will automatically fall back to your computer's built-in voices.
-
----
-
-## 🧪 Testing
-
-Fonetik includes a comprehensive test suite with **38 passing tests** verifying:
-- Database operations and schema integrity
-- API configuration and multi-language support
-- Safe concurrent execution with wordhord, strutur, and panglossia
-- Resource isolation and no port/file conflicts
-
-### Quick Test Commands
-```bash
-npm test              # Run full test suite with coverage
-npm run test:unit     # Database & API configuration tests
-npm run test:integration  # Language data & workflow tests  
-npm run test:concurrent   # Multi-app resource compatibility tests
-npm run test:watch    # Watch mode for development
-```
-
-📋 **Full Test Report**: See [TEST_REPORT.md](./TEST_REPORT.md)  
-📖 **Testing Guide**: See [TESTING.md](./TESTING.md)
-
-**Compatibility Verified**: ✅ Runs safely with wordhord, strutur, and panglossia
+## API & Credits
+- Uses browser Web Speech API and specialized backends for high-fidelity audio.
+- Ensure your Google Cloud credentials are set up for premium voices if applicable.
