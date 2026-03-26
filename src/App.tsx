@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, AudioLines, Languages, ChevronRight, ChevronLeft, Layers, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Mic, MicOff, Volume2, AudioLines, ChevronRight, ChevronLeft, Layers, RefreshCw, Type, Maximize2 } from 'lucide-react';
+import Waveform from './components/Waveform';
 import './App.css';
 
 interface Card {
@@ -26,6 +27,9 @@ interface Card {
   example_sentence?: string;
   example_sentence2?: string;
   example_sentence3?: string;
+  example_sentence_ipa?: string;
+  example_sentence_ipa2?: string;
+  example_sentence_ipa3?: string;
 }
 
 const LANGUAGES = [
@@ -60,6 +64,14 @@ export default function App() {
   const [practiceText, setPracticeText] = useState<string | null>(null);
   const [practiceFeedback, setPracticeFeedback] = useState<{ transcription: string, feedback: string } | null>(null);
   const [isAudioError, setIsAudioError] = useState(false);
+  const [fontSettings, setFontSettings] = useState<Record<string, { family: string, size: number }>>(() => {
+    const saved = localStorage.getItem('fonetik_fonts');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [activeAudioUrl, setActiveAudioUrl] = useState<string | null>(null);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+
+  const currentFont = useMemo(() => fontSettings[language] || { family: 'serif', size: 10 }, [fontSettings, language]);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -67,6 +79,18 @@ export default function App() {
   useEffect(() => {
     loadCards();
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem('fonetik_fonts', JSON.stringify(fontSettings));
+  }, [fontSettings]);
+
+  const updateFontFamily = (family: string) => {
+    setFontSettings(prev => ({ ...prev, [language]: { ...currentFont, family } }));
+  };
+
+  const updateFontSize = (size: number) => {
+    setFontSettings(prev => ({ ...prev, [language]: { ...currentFont, size: Math.max(1, Math.min(20, size)) } }));
+  };
 
   const loadCards = async () => {
     setIsLoading(true);
@@ -121,8 +145,11 @@ export default function App() {
 
       const blob = new Blob([audioBuffer], { type: 'audio/mp3' });
       const url = URL.createObjectURL(blob);
+      if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+      setActiveAudioUrl(url);
+      
       const audio = new Audio(url);
-      audio.onended = () => URL.revokeObjectURL(url);
+      audio.onended = () => {}; // We keep it for the waveform
       await audio.play();
     } catch (err: any) {
       console.error("playIPA error:", err);
@@ -155,6 +182,10 @@ export default function App() {
         try {
           setIsLoading(true);
           const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const recUrl = URL.createObjectURL(blob);
+          if (recordingUrl) URL.revokeObjectURL(recordingUrl);
+          setRecordingUrl(recUrl);
+
           const textToEvaluate = practiceText || (currentCard ? currentCard.symbol : '');
 
           let result;
@@ -249,6 +280,36 @@ export default function App() {
           <select value={language} onChange={(e) => setLanguage(e.target.value)} className="lang-select">
             {LANGUAGES.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
+          
+          <div className="settings-panel">
+            <div className="setting-group" title="Font Family">
+              <Type size={16} />
+              <select 
+                value={currentFont.family} 
+                onChange={(e) => updateFontFamily(e.target.value)}
+                className="font-select"
+              >
+                <option value="serif">Serif (IPA Standard)</option>
+                <option value="sans-serif">Sans-Serif</option>
+                <option value="monospace">Monospace</option>
+                <option value="'Inter', sans-serif">Inter</option>
+                <option value="'Outfit', sans-serif">Outfit</option>
+                <option value="'Roboto', sans-serif">Roboto</option>
+              </select>
+            </div>
+            <div className="setting-group" title="Font Size">
+              <Maximize2 size={16} />
+              <input 
+                type="number" 
+                value={currentFont.size} 
+                onChange={(e) => updateFontSize(parseFloat(e.target.value))}
+                className="size-input"
+                min="1" max="20" step="0.5"
+              />
+              <span style={{ fontSize: '0.7rem' }}>rem</span>
+            </div>
+          </div>
+
           <div className="speed-control">
             <span className="speed-label">Speed: {speakingRate}x</span>
             <input
@@ -290,7 +351,9 @@ export default function App() {
               {/* Front of Card */}
               <div className="card-face card-front">
                 <div className="symbol-display">
-                  <span className="ipa-symbol">{currentCard.symbol}</span>
+                  <span className="ipa-symbol" style={{ fontFamily: currentFont.family, fontSize: `${currentFont.size}rem` }}>
+                    {currentCard.symbol}
+                  </span>
 
                   <div className="speaker-and-tags">
                     <button className="audio-btn" onClick={(e) => { e.stopPropagation(); playIPA(currentCard.symbol, true); }}>
@@ -322,9 +385,9 @@ export default function App() {
                 <div className="back-content">
                   <div className="examples-container">
                     {[
-                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa, sentence: currentCard.example_sentence },
-                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2, sentence: currentCard.example_sentence2 },
-                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3, sentence: currentCard.example_sentence3 }
+                      { word: currentCard.example_word, trans: currentCard.example_translation, ipa: currentCard.example_ipa, sentence: currentCard.example_sentence, sentence_ipa: currentCard.example_sentence_ipa },
+                      { word: currentCard.example_word2, trans: currentCard.example_translation2, ipa: currentCard.example_ipa2, sentence: currentCard.example_sentence2, sentence_ipa: currentCard.example_sentence_ipa2 },
+                      { word: currentCard.example_word3, trans: currentCard.example_translation3, ipa: currentCard.example_ipa3, sentence: currentCard.example_sentence3, sentence_ipa: currentCard.example_sentence_ipa3 }
                     ].filter(ex => ex.word).map((ex, i) => (
                       <div key={i} className="example-row-container">
                         <div className="example-row">
@@ -366,7 +429,11 @@ export default function App() {
                               </button>
                               <span className="sentence-label">Sentence:</span>
                               <span className="sentence">{ex.sentence}</span>
+                              {ex.sentence_ipa && <span className="sentence-ipa" style={{display: 'block', fontSize: '0.85rem', color: 'var(--accent)', marginTop: '2px'}}>{ex.sentence_ipa}</span>}
                             </div>
+                            {activeAudioUrl && practiceText === ex.sentence && (
+                              <Waveform audioUrl={activeAudioUrl} speed={speakingRate} />
+                            )}
                             {practiceFeedback && practiceText === ex.sentence && (
                               <div className="practice-mini-feedback">
                                 <span className="feedback-score">{practiceFeedback.feedback}</span>
@@ -397,6 +464,12 @@ export default function App() {
                       <div className="feedback-layer">
                         <div className="heard">Heard: "{feedback.transcription}"</div>
                         <div className="coach-advice">{feedback.feedback}</div>
+                        {recordingUrl && (
+                          <div className="user-recording">
+                            <span className="tag manner" style={{marginBottom: '0.5rem', display: 'inline-block'}}>Your Recording</span>
+                            <Waveform audioUrl={recordingUrl} speed={speakingRate} />
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

@@ -66,11 +66,14 @@ async function initializeApp() {
           example_word3 TEXT,
           example_translation3 TEXT,
           example_ipa3 TEXT,
-          example_sentence TEXT,
-          example_sentence2 TEXT,
-          example_sentence3 TEXT,
-          UNIQUE(language, symbol, example_word)
-        )
+           example_sentence TEXT,
+           example_sentence_ipa TEXT,
+           example_sentence2 TEXT,
+           example_sentence_ipa2 TEXT,
+           example_sentence3 TEXT,
+           example_sentence_ipa3 TEXT,
+           UNIQUE(language, symbol, example_word)
+         )
       `, (err: Error | null) => {
         if (err) console.error('Error creating cards table:', err);
         else console.log('Database initialized or already exists');
@@ -263,7 +266,13 @@ ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) 
     const finalIsIpa = isIpa !== undefined ? isIpa : isIpaDetected;
 
     // Clean text for synthesis (strip outermost brackets)
-    const cleanText = text.replace(/(^\[|\]$)/g, '').trim();
+    let cleanText = text.replace(/(^\[|\]$)/g, '').trim();
+
+    // Fourth Requirement: Pronounce consonants between two vowels (ah-X-ah)
+    // If it's a single phoneme/cluster (short length) and looks like a consonant
+    if (finalIsIpa && cleanText.length <= 4 && !/[aeiouyɑɛɪɔʊæøœʉ]/.test(cleanText)) {
+      cleanText = `a${cleanText}a`;
+    }
 
     const cacheKey = `${validLang}::${speakingRate}::${finalIsIpa}::${cleanText}`;
     const cached = audioCache.get(cacheKey);
@@ -294,7 +303,19 @@ ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) 
       "Scottish Gaelic": { languageCode: "en-GB", name: "en-GB-Standard-A" }
     };
 
-    const selectedVoice = highQualityVoiceMap[validLang] || { languageCode: "en-US", name: "en-US-Chirp3-HD-Dione" };
+    // Second Requirement: Bundle dialects and pick high-quality Google voice for proper pronunciation
+    let targetLang = validLang;
+    const dialectMatch = text.match(/\(([^)]+)\)/);
+    if (dialectMatch) {
+      const detectedDialect = dialectMatch[1].toLowerCase();
+      if (detectedDialect.includes("north american") || detectedDialect.includes("us")) targetLang = "English (North American)";
+      else if (detectedDialect.includes("received pronunciation") || detectedDialect.includes("rp") || detectedDialect.includes("british")) targetLang = "English (Received Pronunciation)";
+      else if (detectedDialect.includes("mexican")) targetLang = "Spanish (Mexican)";
+      else if (detectedDialect.includes("spain")) targetLang = "Spanish (Spain)";
+      // Add more as needed
+    }
+
+    const selectedVoice = highQualityVoiceMap[targetLang] || highQualityVoiceMap[validLang] || { languageCode: "en-US", name: "en-US-Chirp3-HD-Dione" };
     const langCode = selectedVoice.languageCode || 'en-US';
 
     try {
@@ -321,6 +342,10 @@ ipcMain.handle('play-ipa', async (event, { text, language, speed, isIpa }: any) 
       throw new Error("Empty audio content");
     } catch (googleError: any) {
       console.warn(`[play-ipa] Google TTS failure: ${googleError.message}`);
+      // Ifvoice not available, show IPA and provide best approximation note
+      if (googleError.message.includes('not found') || googleError.message.includes('404')) {
+        console.log(`[play-ipa] Voice for ${targetLang} unavailable. Using best approximation.`);
+      }
       const voiceMap: any = { 'en-us': 'en-us', 'en-gb': 'en-gb', 'de': 'de', 'nl': 'nl', 'es': 'es', 'pt': 'pt', 'fi': 'fi', 'sv': 'sv' };
       let chosenVoice = 'en-gb';
       const l = validLang.toLowerCase();
@@ -368,7 +393,17 @@ ipcMain.handle('evaluate-audio', async (event, { audioBlob, language, expectedTe
     });
     const transcription = response.results?.map((r: any) => r.alternatives?.[0].transcript).join('\n') || "[No speech]";
     const modelInstance = getModel();
-    const prompt = `User practiced "${expectedText}" in ${validLang}. Recognized: "${transcription}". Give 1-2 sentences of phonetic advice.`;
+    const prompt = `
+      ACT AS AN EXPERT LINGUISTIC COACH. 
+      Student practiced: "${expectedText}" (Target Language: ${validLang}).
+      Speech-to-Text recognized: "${transcription}".
+      
+      TASK: 
+      1. Provide a highly detailed phonetic comparison between the student's attempt and the ideal IPA for "${expectedText}".
+      2. Identify specific phonemes or allophones that were mispronounced or substituted.
+      3. Give 1-2 sentences of actionable articulatory advice (e.g. "Try raising the back of your tongue higher" or "Ensure the aspiration is stronger on the [p]").
+      4. Use IPA symbols in your feedback where possible.
+    `;
     const result = await modelInstance.generateContent(prompt);
     return { transcription, feedback: result.response.text() };
   } catch (error: any) { return { transcription: "Error", feedback: "Evaluation failed" }; }
