@@ -8,6 +8,12 @@
   --text-muted: #e2e8f0;
   --vowel: #10b981;
   --consonant: #f59e0b;
+
+  /* Universal Hub Overrides */
+  --global-font-body: 'Inter', system-ui, sans-serif;
+  --global-font-size: 16px;
+  --accent-color: var(--accent);
+  --glass-opacity: 0.7;
 }
 
 .theme-catppuccin {
@@ -43,10 +49,11 @@
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--global-font-body);
   background-color: var(--base);
   color: var(--text);
   overflow: hidden;
+  font-size: var(--global-font-size);
 }
 
 .app-container {
@@ -60,7 +67,8 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background-color: var(--surface);
+  background-color: rgba(var(--surface-rgb, 30, 41, 59), var(--glass-opacity));
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid rgba(56, 189, 248, 0.2);
   -webkit-app-region: drag;
   z-index: 100;
